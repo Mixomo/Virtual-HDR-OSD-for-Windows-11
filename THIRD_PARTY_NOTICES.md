@@ -17,3 +17,15 @@ The optional Windows piecewise-sRGB to pure-gamma-2.2 correction is implemented 
 https://github.com/dylanraga/win11hdr-srgb-to-gamma2.2-icm
 
 Virtual HDR OSD does not bundle that project's ICC/ICM profile binaries, ArgyllCMS, or the community AutoHotkey script.
+
+
+## Integrated fork improvements
+
+Corrections, the shared `vhdr_color` core, calibration patterns, measurement tools,
+accessibility improvements and related tests are adapted from dkflint723's GPL-3.0
+fork of this project:
+
+https://github.com/dkflint723/Virtual-HDR-OSD-for-Windows-11
+
+Reviewed source snapshot: `6aafef412d0f12666aca9ed6d6508ecc9a4af71f`.
+Original project authorship and the existing GPL-3.0 license are retained.

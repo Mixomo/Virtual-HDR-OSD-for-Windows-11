@@ -28,12 +28,11 @@ if not exist ".uv\uv.exe" (
 
 if exist ".build-venv" rmdir /s /q ".build-venv"
 if exist "build-portable" rmdir /s /q "build-portable"
-if exist "release\Virtual HDR OSD for Windows.exe" del /q "release\Virtual HDR OSD for Windows.exe"
 if not exist "release" mkdir "release"
 
 echo Validating the embedded watchdog resources...
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$installer=Join-Path '%~dp0' 'src\sdr_hdr_profile_creator\resources\2- OPTIONAL - Install-Watchdog.bat'; $uninstaller=Join-Path '%~dp0' 'src\sdr_hdr_profile_creator\resources\Uninstall-Watchdog.bat'; $i=Get-Content -Raw -LiteralPath $installer; $u=Get-Content -Raw -LiteralPath $uninstaller; if($i -notmatch 'Schedule.Service' -or $i -notmatch 'RegisterTaskDefinition' -or $i -notmatch 'currentSid' -or $i -match 'Register-ScheduledTask' -or $i -match 'Falling back to the current-user Run key' -or $u -notmatch 'Schedule.Service'){ throw 'Embedded watchdog resources are stale. Expected mandatory SID-based Task Scheduler COM registration with no legacy Run-key fallback.' }"
+  "$installer=Join-Path '%~dp0' 'src\sdr_hdr_profile_creator\resources\2- OPTIONAL - Install-Watchdog.bat'; $uninstaller=Join-Path '%~dp0' 'src\sdr_hdr_profile_creator\resources\Uninstall-Watchdog.bat'; $i=Get-Content -Raw -LiteralPath $installer; $u=Get-Content -Raw -LiteralPath $uninstaller; if($i -notmatch 'Schedule.Service' -or $i -notmatch 'RegisterTaskDefinition' -or $i -notmatch 'currentSid' -or $i -match 'Register-ScheduledTask' -or $i -notmatch 'HKCU Run fallback \(shared hidden launcher\)' -or $i -notmatch 'failures >= 3' -or $u -notmatch 'Schedule.Service'){ throw 'Embedded watchdog resources are stale. Expected SID-based Task Scheduler registration and the shared bounded HKCU fallback.' }"
 if errorlevel 1 goto :fail
 
 set "UV_NO_CACHE=1"
@@ -46,25 +45,32 @@ set "UV_PYTHON_INSTALL_REGISTRY=0"
 ".uv\uv.exe" venv ".build-venv" --python ".venv\Scripts\python.exe"
 if errorlevel 1 goto :fail
 
-".uv\uv.exe" pip install --python ".build-venv\Scripts\python.exe" --no-cache "nuitka==4.1.3" "ordered-set" "zstandard"
+".uv\uv.exe" pip install --python ".build-venv\Scripts\python.exe" --no-cache "nuitka==4.1.3" "ordered-set==4.1.0" "zstandard==0.25.0"
 if errorlevel 1 goto :fail
 
-".uv\uv.exe" pip install --python ".build-venv\Scripts\python.exe" --no-cache -e .
+".uv\uv.exe" export --locked --no-dev --no-emit-project --format requirements-txt -o ".build-venv\locked-requirements.txt"
+if errorlevel 1 goto :fail
+".uv\uv.exe" pip install --python ".build-venv\Scripts\python.exe" --no-cache --require-hashes -r ".build-venv\locked-requirements.txt"
+if errorlevel 1 goto :fail
+".uv\uv.exe" pip install --python ".build-venv\Scripts\python.exe" --no-cache --no-deps -e .
 if errorlevel 1 goto :fail
 
 echo Running tests...
 set "PYTHONPATH=%~dp0src"
-".build-venv\Scripts\python.exe" -m unittest discover -s tests -v
+".build-venv\Scripts\python.exe" tools\run_tests.py
 if errorlevel 1 goto :fail
 
 echo.
 echo Compiling one-file portable EXE...
 ".build-venv\Scripts\python.exe" -m nuitka ^
   --onefile ^
+  --disable-cache=ccache ^
+  --jobs=8 ^
   --enable-plugin=pyside6 ^
   --windows-console-mode=disable ^
   --assume-yes-for-downloads ^
   --include-package=qfluentwidgets ^
+  --include-package=vhdr_color ^
   --include-package-data=qfluentwidgets ^
   --include-data-dir="src\sdr_hdr_profile_creator\resources=sdr_hdr_profile_creator/resources" ^
   --output-dir="build-portable" ^
@@ -78,7 +84,9 @@ if not exist "build-portable\Virtual HDR OSD for Windows.exe" (
 )
 
 copy /y "build-portable\Virtual HDR OSD for Windows.exe" "release\Virtual HDR OSD for Windows.exe" >nul
-powershell.exe -NoProfile -Command "$p='%~dp0release\Virtual HDR OSD for Windows.exe'; $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant(); Set-Content -Encoding ASCII -LiteralPath '%~dp0release\Virtual HDR OSD for Windows.sha256.txt' -Value ($h + '  Virtual HDR OSD for Windows.exe')"
+if errorlevel 1 goto :fail
+powershell.exe -NoProfile -Command "$p='%~dp0release\Virtual HDR OSD for Windows.exe'; $sha=[Security.Cryptography.SHA256]::Create(); $stream=[IO.File]::OpenRead($p); try{$h=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$stream.Dispose();$sha.Dispose()}; Set-Content -Encoding ASCII -LiteralPath '%~dp0release\Virtual HDR OSD for Windows.sha256.txt' -Value ($h + '  Virtual HDR OSD for Windows.exe')"
+if errorlevel 1 goto :fail
 
 echo.
 echo BUILD COMPLETE

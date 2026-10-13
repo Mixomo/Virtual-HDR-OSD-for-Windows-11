@@ -1,7 +1,73 @@
-.venv
-.uv
-.python
-__pycache__
-src/sdr_hdr_profile_creator/__pycache__
-.build-venv
-build-portable
+# Project-local runtimes and Python environments
+.venv/
+.build-venv/
+.uv/
+.python/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build outputs and native compiler caches
+build/
+dist/
+build-portable/
+*.build/
+*.dist/
+*.onefile-build/
+
+# Local configuration and editor/agent state
+.env
+.env.*
+!.env.example
+!.env.template
+.vscode/
+.idea/
+.aws/
+.ssh/
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local audits, snapshots and internal diagnostics
+.audit-validation/
+AUDIT*.md
+audit*.md
+docs/audits/
+/tools/verify_watchdog.ps1
+/tests/test_mode_recovery.py
+/tests/test_recovery.py
+*.log
+*.tmp
+*.bak
+*.old
+
+# Local copies of user calibration state
+/last_gui_state.json
+/gamma_hotkeys.json
+/original_profiles.json
+/live_registry.json
+/meter_log.jsonl
+/install_result.json
+/State.json
+/Watchdog.ps1
+/Launcher.vbs
+/ColorProfileModeWatchdog/
+/live/
+/gamma_profiles/
+
+# Generated/user calibration profiles; intentional test fixtures remain publishable
+*.icc
+*.icm
+!/tests/fixtures/**/*.icc
+!/tests/fixtures/**/*.icm
+
+# Publish only the canonical portable release and checksum
+/release/*
+!/release/Virtual HDR OSD for Windows.exe
+!/release/Virtual HDR OSD for Windows.sha256.txt

@@ -69,7 +69,20 @@ $StatePath = Join-Path $AppDir 'State.json'
 $LogPath = Join-Path $AppDir 'Watchdog.log'
 $GammaStatePath = Join-Path $env:LOCALAPPDATA 'Virtual_HDR_OSD_for_Windows\gamma_hotkeys.json'
 $LauncherPath = Join-Path $AppDir 'Launcher.vbs'
+$ResultPath = Join-Path $AppDir 'install_result.json'
 $TaskName = 'Virtual HDR OSD - Color Profile Mode Watchdog'
+
+trap {
+    $installFailure = $_
+    if ($Install) {
+        try {
+            [IO.Directory]::CreateDirectory($AppDir) | Out-Null
+            $result = @{ ok = $false; warnings = @($installFailure.Exception.Message); startup = ''; recorded_at = [DateTime]::UtcNow.ToString('o') }
+            [IO.File]::WriteAllText($ResultPath, ($result | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+        } catch {}
+    }
+    throw $installFailure
+}
 
 function Write-Log {
     param([string]$Message)
@@ -86,20 +99,48 @@ function Write-Log {
     } catch {}
 }
 
+function Test-WatchdogSingletonHeld {
+    # The only honest liveness check. The script being on disk, and a scheduled task
+    # existing, both stay true after the watchdog has exited; and a process list is no
+    # good either, because Win32_Process returns a null CommandLine for a process at a
+    # higher integrity level than this one -- which is exactly the case that matters.
+    try {
+        $mutex = [System.Threading.Mutex]::OpenExisting('Local\ColorProfileModeWatchdogStandalone')
+        try { $mutex.Dispose() } catch {}
+        return $true
+    } catch [System.Threading.WaitHandleCannotBeOpenedException] {
+        return $false
+    } catch [System.UnauthorizedAccessException] {
+        # It exists, and belongs to a process this one may not open: a watchdog started
+        # by an elevated install. Answering "not running" here is what let an install
+        # over one report that it had cleared the way.
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Stop-ExistingWatchdog {
     try {
         $escaped = [Regex]::Escape((Join-Path $AppDir 'Watchdog.ps1'))
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        $launcherPattern = [Regex]::Escape($LauncherPath)
+        Get-CimInstance Win32_Process -ErrorAction Stop |
             Where-Object {
-                ($_.Name -ieq 'powershell.exe' -or $_.Name -ieq 'pwsh.exe') -and
+                ($_.Name -in @('powershell.exe','pwsh.exe','wscript.exe','cscript.exe')) -and
                 $_.CommandLine -and
-                ($_.CommandLine -match $escaped) -and
+                (($_.CommandLine -match $escaped) -or ($_.CommandLine -match $launcherPattern)) -and
                 ($_.ProcessId -ne $PID)
             } |
+            Sort-Object @{ Expression = { if ($_.Name -in @('wscript.exe','cscript.exe')) { 0 } else { 1 } } } |
             ForEach-Object {
-                Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
+                $targetProcess = [Diagnostics.Process]::GetProcessById($_.ProcessId)
+                try {
+                    $result = Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction Stop
+                    if ($result.ReturnValue -ne 0) { throw ("Could not stop watchdog PID " + $_.ProcessId + ": " + $result.ReturnValue) }
+                    if (-not $targetProcess.WaitForExit(5000)) { throw 'Previous watchdog did not exit in time' }
+                } finally { $targetProcess.Dispose() }
             }
-    } catch {}
+    } catch { throw ('Could not stop the previous watchdog; installation stopped: ' + $_.Exception.Message) }
 }
 
 $nativeSource = @'
@@ -111,6 +152,15 @@ namespace ColorProfileWatchdog
 {
     public static class Native
     {
+        static Native()
+        {
+            if (Marshal.SizeOf(typeof(DISPLAYCONFIG_PATH_SOURCE_INFO)) != 20 ||
+                Marshal.SizeOf(typeof(DISPLAYCONFIG_PATH_TARGET_INFO)) != 48 ||
+                Marshal.SizeOf(typeof(DISPLAYCONFIG_PATH_INFO)) != 72 ||
+                Marshal.SizeOf(typeof(DISPLAYCONFIG_TARGET_DEVICE_NAME)) != 420)
+                throw new InvalidOperationException("Invalid DisplayConfig ABI layout");
+        }
+
         public const uint QDC_ONLY_ACTIVE_PATHS = 0x00000002;
         public const int ERROR_SUCCESS = 0;
         public const int ERROR_INSUFFICIENT_BUFFER = 122;
@@ -125,16 +175,13 @@ namespace ColorProfileWatchdog
         public const int DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO = 9;
         public const int DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL = 11;
 
-        public const int HOTKEY_OFF = 0x564801;
-        public const int HOTKEY_ON = 0x564802;
-        public const int HOTKEY_DISPLAY_CHANGE = 0x564803;
-        public const int HOTKEY_FORCE_RESTORE = 0x564804;
+        public const int HOTKEY_OFF = 0x5641;
+        public const int HOTKEY_ON = 0x5642;
+        public const int HOTKEY_FORCE_RESTORE = 0x5643;
         public const uint MOD_ALT = 0x0001;
         public const uint MOD_NOREPEAT = 0x4000;
         public const uint VK_1 = 0x31;
         public const uint VK_2 = 0x32;
-        public const uint VK_B = 0x42;
-        public const uint MOD_WIN = 0x0008;
         public const uint VK_3 = 0x33;
         public const uint WM_HOTKEY = 0x0312;
         public const uint PM_REMOVE = 0x0001;
@@ -211,6 +258,21 @@ namespace ColorProfileWatchdog
             public string viewGdiDeviceName;
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public UInt32 flags;
+            public Int32 outputTechnology;
+            public UInt16 edidManufactureId;
+            public UInt16 edidProductCodeId;
+            public UInt32 connectorInstance;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+            public string monitorFriendlyDeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string monitorDevicePath;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
         {
@@ -218,6 +280,16 @@ namespace ColorProfileWatchdog
             public UInt32 value;
             public Int32 colorEncoding;
             public UInt32 bitsPerColorChannel;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public UInt32 value;
+            public Int32 colorEncoding;
+            public UInt32 bitsPerColorChannel;
+            public UInt32 activeColorMode;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -248,11 +320,13 @@ namespace ColorProfileWatchdog
         public sealed class DisplayInfo
         {
             public string GdiName { get; set; }
+            public string DevicePath { get; set; }
             public UInt32 AdapterLow { get; set; }
             public Int32 AdapterHigh { get; set; }
             public UInt32 SourceId { get; set; }
             public UInt32 TargetId { get; set; }
             public bool AdvancedColorEnabled { get; set; }
+            public string Timing { get; set; }
 
             internal LUID AdapterLuid
             {
@@ -308,16 +382,69 @@ namespace ColorProfileWatchdog
         [DllImport("kernel32.dll")]
         private static extern uint GetCurrentThreadId();
 
+        [DllImport("user32.dll")]
+        private static extern bool PeekMessage(out MSG msg, IntPtr hwnd, uint min, uint max, uint remove);
+
         private const uint WM_QUIT = 0x0012;
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<int> gammaHotkeyQueue =
-            new System.Collections.Concurrent.ConcurrentQueue<int>();
+        private const uint WM_RETRY_HOTKEYS = 0x8001;
+        private static readonly object queueLock = new object();
+        private static readonly Queue<int> gammaHotkeyQueue = new Queue<int>();
         private static readonly System.Threading.AutoResetEvent displayChangeSignal =
             new System.Threading.AutoResetEvent(false);
-        private static System.Threading.Thread gammaHotkeyThread;
-        private static System.Threading.ManualResetEvent gammaHotkeyReady =
+        private static readonly System.Threading.ManualResetEvent gammaHotkeyReady =
             new System.Threading.ManualResetEvent(false);
-        private static volatile bool gammaHotkeysRegistered = false;
-        private static uint gammaHotkeyThreadId = 0;
+        private static System.Threading.Thread gammaHotkeyThread;
+        private static volatile bool gammaHotkeysRegistered;
+        private static uint gammaHotkeyThreadId;
+        private static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        private static readonly RecoverySchedule recovery = new RecoverySchedule();
+        private static System.Threading.Timer startupGuard;
+        public static void BeginStartupGuard(string logPath)
+        {
+            startupGuard = new System.Threading.Timer(delegate(object ignored) {
+                try { System.IO.File.AppendAllText(logPath, "Startup exceeded 25 seconds; exiting for bounded restart.\r\n"); } catch { }
+                Environment.Exit(9);
+            }, null, 25000, System.Threading.Timeout.Infinite);
+        }
+        public static void CompleteStartup()
+        {
+            if (startupGuard != null) { startupGuard.Dispose(); startupGuard = null; }
+        }
+        private static long pauseUntil;
+        private static long nextProbe;
+        private static long nextHotkeyRetry;
+
+        // Fixed-size state and monotonic deadlines. Notification storms cannot
+        // extend a window forever; a real mode/topology change replaces it.
+        public sealed class RecoverySchedule
+        {
+            private string signature;
+            private long started;
+            private int attempt = 3;
+            private static readonly long[] delays = { 700, 2000, 5000 };
+            public void Observe(string value, long now)
+            {
+                if (signature == value) return;
+                signature = value;
+                Request(now);
+            }
+            public void Unavailable()
+            {
+                signature = null;
+                attempt = 3;
+            }
+            public void Request(long now)
+            {
+                started = now;
+                attempt = 0;
+            }
+            public bool Due(long now)
+            {
+                if (attempt >= 3 || now - started < delays[attempt]) return false;
+                attempt++;
+                return true;
+            }
+        }
 
         private static void OnDisplaySettingsChanged(object sender, EventArgs e)
         {
@@ -326,80 +453,83 @@ namespace ColorProfileWatchdog
 
         private static void OnUserPreferenceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
         {
+            OnDisplaySettingsChanged(sender, e);
+        }
+
+        private static void EnqueueHotkey(int id)
+        {
+            lock (queueLock)
+            {
+                // Preserve the latest commands under a flood, cap retained memory.
+                if (gammaHotkeyQueue.Count == 16) gammaHotkeyQueue.Dequeue();
+                gammaHotkeyQueue.Enqueue(id);
+            }
             displayChangeSignal.Set();
         }
 
         private static void GammaHotkeyMessageLoop()
         {
             gammaHotkeyThreadId = GetCurrentThreadId();
-            // Keep the original gamma hotkey registration used by the last
-            // known-good release. The no-repeat flag prevents key auto-repeat
-            // from enqueueing duplicate profile changes.
-            uint modifiers = MOD_ALT | MOD_NOREPEAT;
-            bool off = RegisterHotKey(IntPtr.Zero, HOTKEY_OFF, modifiers, VK_1);
-            bool on = RegisterHotKey(IntPtr.Zero, HOTKEY_ON, modifiers, VK_2);
-            bool winAltB = RegisterHotKey(IntPtr.Zero, HOTKEY_DISPLAY_CHANGE, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_B);
-            bool forceRestore = RegisterHotKey(IntPtr.Zero, HOTKEY_FORCE_RESTORE, MOD_ALT | MOD_NOREPEAT, VK_3);
-            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
-            Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
-
-            gammaHotkeysRegistered = off && on;
-            if (!gammaHotkeysRegistered)
-            {
-                // Do not leave a partially registered message-loop thread alive.
-                // TryRegisterGammaHotkeys() must be able to create a fresh thread
-                // after another process releases Alt+1/Alt+2.
-                if (off) UnregisterHotKey(IntPtr.Zero, HOTKEY_OFF);
-                if (on) UnregisterHotKey(IntPtr.Zero, HOTKEY_ON);
-                if (winAltB) UnregisterHotKey(IntPtr.Zero, HOTKEY_DISPLAY_CHANGE);
-                if (forceRestore) UnregisterHotKey(IntPtr.Zero, HOTKEY_FORCE_RESTORE);
-                Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
-                Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-                gammaHotkeyThreadId = 0;
-                gammaHotkeyReady.Set();
-                return;
-            }
-            gammaHotkeyReady.Set();
             MSG msg;
+            PeekMessage(out msg, IntPtr.Zero, 0, 0, 0); // Create queue before publishing readiness.
+            bool off = false, on = false, restore = false;
             try
             {
-                while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
+                try {
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+                    Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+                } catch { /* Native probes remain available without SystemEvents. */ }
+                // Keep available keys alive, even if another app owns a different key.
+                // Never register Win+Alt+B: Windows owns that shortcut.
+                while (true)
                 {
+                    uint modifiers = MOD_ALT | MOD_NOREPEAT;
+                    if (!off) off = RegisterHotKey(IntPtr.Zero, HOTKEY_OFF, modifiers, VK_1);
+                    if (!on) on = RegisterHotKey(IntPtr.Zero, HOTKEY_ON, modifiers, VK_2);
+                    if (!restore) restore = RegisterHotKey(IntPtr.Zero, HOTKEY_FORCE_RESTORE, modifiers, VK_3);
+                    gammaHotkeysRegistered = off && on && restore;
+                    gammaHotkeyReady.Set();
+                    int result = GetMessage(out msg, IntPtr.Zero, 0, 0);
+                    if (result <= 0) break;
                     if (msg.message == WM_HOTKEY)
                     {
                         int id = msg.wParam.ToInt32();
-                        if (id == HOTKEY_OFF || id == HOTKEY_ON)
-                            gammaHotkeyQueue.Enqueue(id);
-                        else if (id == HOTKEY_DISPLAY_CHANGE)
-                            displayChangeSignal.Set();
-                        else if (id == HOTKEY_FORCE_RESTORE)
-                        {
-                            gammaHotkeyQueue.Enqueue(id);
-                            displayChangeSignal.Set();
-                        }
+                        if (id == HOTKEY_OFF || id == HOTKEY_ON || id == HOTKEY_FORCE_RESTORE)
+                            EnqueueHotkey(id);
                     }
                 }
             }
+            catch { gammaHotkeyReady.Set(); }
             finally
             {
-                UnregisterHotKey(IntPtr.Zero, HOTKEY_OFF);
-                UnregisterHotKey(IntPtr.Zero, HOTKEY_ON);
-                UnregisterHotKey(IntPtr.Zero, HOTKEY_DISPLAY_CHANGE);
-                UnregisterHotKey(IntPtr.Zero, HOTKEY_FORCE_RESTORE);
-                Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
-                Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+                if (off) UnregisterHotKey(IntPtr.Zero, HOTKEY_OFF);
+                if (on) UnregisterHotKey(IntPtr.Zero, HOTKEY_ON);
+                if (restore) UnregisterHotKey(IntPtr.Zero, HOTKEY_FORCE_RESTORE);
+                try {
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+                    Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+                } catch { }
                 gammaHotkeysRegistered = false;
                 gammaHotkeyThreadId = 0;
             }
         }
 
+        public static bool HotkeyLoopReady { get { return gammaHotkeyReady.WaitOne(0); } }
+
         public static bool TryRegisterGammaHotkeys()
         {
-            if (gammaHotkeysRegistered)
-                return true;
+            if (gammaHotkeysRegistered) return true;
             if (gammaHotkeyThread != null && gammaHotkeyThread.IsAlive)
+            {
+                if (clock.ElapsedMilliseconds >= nextHotkeyRetry)
+                {
+                    nextHotkeyRetry = clock.ElapsedMilliseconds + 2000;
+                    PostThreadMessage(gammaHotkeyThreadId, WM_RETRY_HOTKEYS, UIntPtr.Zero, IntPtr.Zero);
+                }
                 return false;
-
+            }
+            if (clock.ElapsedMilliseconds < nextHotkeyRetry) return false;
+            nextHotkeyRetry = clock.ElapsedMilliseconds + 2000;
             gammaHotkeyReady.Reset();
             gammaHotkeyThread = new System.Threading.Thread(GammaHotkeyMessageLoop);
             gammaHotkeyThread.IsBackground = true;
@@ -411,22 +541,55 @@ namespace ColorProfileWatchdog
 
         public static int PollGammaHotkey()
         {
-            int id;
-            return gammaHotkeyQueue.TryDequeue(out id) ? id : 0;
+            lock (queueLock)
+                return gammaHotkeyQueue.Count > 0 ? gammaHotkeyQueue.Dequeue() : 0;
+        }
+
+        public static void PauseRecoveryFor(int milliseconds)
+        {
+            pauseUntil = clock.ElapsedMilliseconds + Math.Max(0, Math.Min(3000, milliseconds));
+        }
+
+        public static void RequestRecovery()
+        {
+            recovery.Request(clock.ElapsedMilliseconds);
         }
 
         public static bool WaitForDisplayChange(int timeoutMilliseconds)
         {
-            return displayChangeSignal.WaitOne(timeoutMilliseconds);
+            displayChangeSignal.WaitOne(timeoutMilliseconds);
+            long now = clock.ElapsedMilliseconds;
+            if (now >= nextProbe)
+            {
+                nextProbe = now + 1000;
+                try
+                {
+                    DisplayInfo[] displays = GetActiveDisplays();
+                    // Stable order avoids spurious transitions when path order changes.
+                    string[] keys = new string[displays.Length];
+                    for (int i = 0; i < displays.Length; i++)
+                    {
+                        DisplayInfo d = displays[i];
+                        keys[i] = d.AdapterHigh + ":" + d.AdapterLow + ":" + d.SourceId + ":" +
+                            d.TargetId + ":" + d.AdvancedColorEnabled + ":" + d.Timing + ":" +
+                            GetDefaultProfileWithFallback(d, d.AdvancedColorEnabled ?
+                                CPST_EXTENDED_DISPLAY_COLOR_MODE : CPST_STANDARD_DISPLAY_COLOR_MODE);
+                    }
+                    Array.Sort(keys, StringComparer.Ordinal);
+                    recovery.Observe(String.Join("|", keys), now);
+                }
+                catch { recovery.Unavailable(); /* Reacquisition starts a fresh window. */ }
+            }
+            if (pauseUntil > now) return false;
+            if (pauseUntil != 0) { pauseUntil = 0; recovery.Request(now); }
+            return recovery.Due(now);
         }
 
         public static void UnregisterGammaHotkeys()
         {
             uint threadId = gammaHotkeyThreadId;
-            if (threadId != 0)
-                PostThreadMessage(threadId, WM_QUIT, UIntPtr.Zero, IntPtr.Zero);
-            if (gammaHotkeyThread != null && gammaHotkeyThread.IsAlive)
-                gammaHotkeyThread.Join(1000);
+            if (threadId != 0) PostThreadMessage(threadId, WM_QUIT, UIntPtr.Zero, IntPtr.Zero);
+            if (gammaHotkeyThread != null && gammaHotkeyThread.IsAlive) gammaHotkeyThread.Join(1500);
             gammaHotkeysRegistered = false;
         }
 
@@ -496,8 +659,31 @@ namespace ColorProfileWatchdog
             return packet.viewGdiDeviceName;
         }
 
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        private static extern int DisplayConfigGetAdvancedColorInfo2(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 packet);
+
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        private static extern int DisplayConfigGetTargetName(ref DISPLAYCONFIG_TARGET_DEVICE_NAME packet);
+
+        private static string GetDevicePath(DISPLAYCONFIG_PATH_TARGET_INFO target)
+        {
+            DISPLAYCONFIG_TARGET_DEVICE_NAME packet = new DISPLAYCONFIG_TARGET_DEVICE_NAME();
+            packet.header.type = 2;
+            packet.header.size = (UInt32)Marshal.SizeOf(typeof(DISPLAYCONFIG_TARGET_DEVICE_NAME));
+            packet.header.adapterId = target.adapterId;
+            packet.header.id = target.id;
+            return DisplayConfigGetTargetName(ref packet) == 0 ? packet.monitorDevicePath : "";
+        }
+
         private static bool GetAdvancedColorEnabled(DISPLAYCONFIG_PATH_TARGET_INFO target)
         {
+            DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 modern = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2();
+            modern.header.type = 15;
+            modern.header.size = (UInt32)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2));
+            modern.header.adapterId = target.adapterId;
+            modern.header.id = target.id;
+            if (DisplayConfigGetAdvancedColorInfo2(ref modern) == ERROR_SUCCESS)
+                return modern.activeColorMode == 2;
             DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO packet = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
             packet.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
             packet.header.size = (UInt32)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
@@ -506,7 +692,7 @@ namespace ColorProfileWatchdog
 
             int rc = DisplayConfigGetAdvancedColorInfo(ref packet);
             if (rc != ERROR_SUCCESS)
-                return false;
+                throw new InvalidOperationException("Advanced Color query failed: " + rc);
 
             return (packet.value & 0x2u) != 0;
         }
@@ -558,11 +744,13 @@ namespace ColorProfileWatchdog
 
                         DisplayInfo info = new DisplayInfo();
                         info.GdiName = gdiName;
+                        info.DevicePath = GetDevicePath(path.targetInfo);
                         info.AdapterLow = path.targetInfo.adapterId.LowPart;
                         info.AdapterHigh = path.targetInfo.adapterId.HighPart;
                         info.SourceId = path.sourceInfo.id;
                         info.TargetId = path.targetInfo.id;
                         info.AdvancedColorEnabled = GetAdvancedColorEnabled(path.targetInfo);
+                        info.Timing = path.targetInfo.refreshRate.Numerator + "/" + path.targetInfo.refreshRate.Denominator + ":" + path.targetInfo.rotation;
                         result.Add(info);
                     }
 
@@ -618,16 +806,14 @@ namespace ColorProfileWatchdog
                 subtype,
                 out ptr);
 
-            if (hr < 0 || ptr == IntPtr.Zero)
-                return null;
-
             try
             {
+                if (hr < 0 || ptr == IntPtr.Zero) return null;
                 return Marshal.PtrToStringUni(ptr);
             }
             finally
             {
-                LocalFree(ptr);
+                if (ptr != IntPtr.Zero) LocalFree(ptr);
             }
         }
 
@@ -645,11 +831,23 @@ namespace ColorProfileWatchdog
             return GetDefaultProfile(display, other, subtype);
         }
 
+        [DllImport("mscms.dll", CharSet = CharSet.Unicode)]
+        private static extern int ColorProfileAddDisplayAssociation(int scope, string profileName,
+            LUID adapter, UInt32 sourceId, [MarshalAs(UnmanagedType.Bool)] bool makeDefault,
+            [MarshalAs(UnmanagedType.Bool)] bool advanced);
+
         public static int SetCurrentUserDefault(DisplayInfo display, int subtype, string profileName)
         {
             if (String.IsNullOrWhiteSpace(profileName))
                 return 0;
 
+            string name = System.IO.Path.GetFileName(profileName);
+            if (!System.IO.File.Exists(System.IO.Path.Combine(GetWindowsColorDirectory(), name)))
+                return unchecked((int)0x80070002);
+            int association = ColorProfileAddDisplayAssociation(
+                WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, name, ToLuid(display),
+                display.SourceId, false, subtype == CPST_EXTENDED_DISPLAY_COLOR_MODE);
+            if (association < 0) return association;
             return ColorProfileSetDisplayDefaultAssociation(
                 WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
                 profileName,
@@ -664,6 +862,30 @@ namespace ColorProfileWatchdog
 
 if (-not ('ColorProfileWatchdog.Native' -as [type])) {
     Add-Type -TypeDefinition $nativeSource -Language CSharp
+}
+
+function Save-JsonAtomic {
+    param([string]$Path, $Value)
+    $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        $json = $Value | ConvertTo-Json -Depth 12
+        [IO.File]::WriteAllText($temporary, $json, (New-Object Text.UTF8Encoding($false)))
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) }
+        else { [IO.File]::Move($temporary, $Path) }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function Confirm-RestoredProfile {
+    param($Display, [int]$Subtype, [string]$Expected)
+    $actual = [ColorProfileWatchdog.Native]::GetDefaultProfile($Display,
+        [ColorProfileWatchdog.Native]::WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER, $Subtype)
+    if ([IO.Path]::GetFileName($actual) -ine [IO.Path]::GetFileName($Expected)) {
+        Write-Log ('Profile readback mismatch on {0}: requested={1}; readback={2}' -f $Display.GdiName, $Expected, $actual)
+    } else {
+        Write-Log ('Verified profile association on {0}: {1}' -f $Display.GdiName, $actual)
+    }
 }
 
 function Get-ActiveDisplays {
@@ -768,19 +990,57 @@ function Get-SavedProfileState {
 
     $gammaEntry = Get-GammaEntryForDisplay -CurrentDisplay $Display
     $pair = Resolve-StableWorkingPair -Display $Display -CurrentExtended $extended -GammaEntry $gammaEntry
+    if ($gammaEntry -and $gammaEntry.profiles.Off -and $gammaEntry.profiles.On -and
+        $gammaEntry.profiles.Off -match '^Virtual_HDR_OSD_[A-Fa-f0-9]+_Off\.icm$' -and
+        $gammaEntry.profiles.On -match '^Virtual_HDR_OSD_[A-Fa-f0-9]+_On\.icm$' -and
+        (Test-InstalledColorProfile $gammaEntry.profiles.Off) -and
+        (Test-InstalledColorProfile $gammaEntry.profiles.On)) {
+        $pair.Off = [string]$gammaEntry.profiles.Off
+        $pair.On = [string]$gammaEntry.profiles.On
+        $pair.Enabled = [bool]$gammaEntry.enabled
+    }
 
     [PSCustomObject]@{
         GdiName         = $Display.GdiName
+        DevicePath      = $Display.DevicePath
         AdapterLow      = $Display.AdapterLow
         AdapterHigh     = $Display.AdapterHigh
         SourceId        = $Display.SourceId
+        TargetId        = $Display.TargetId
         OriginalScope   = $scope
         StandardProfile = $standard
-        ExtendedProfile = $extended
+        ExtendedProfile = (Resolve-BaseExtendedProfile -GammaEntry $gammaEntry -CurrentExtended $extended)
         WorkingOff      = $pair.Off
         WorkingOn       = $pair.On
         GammaEnabled    = [bool]$pair.Enabled
+        GammaUpdatedAt  = (Get-Date).ToString('o')
     }
+}
+
+function Get-OptionalField {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
+function Find-SavedDisplay {
+    param($CurrentDisplay, $State = $script:state)
+    foreach ($saved in $State.Displays) {
+        $savedPath = Get-OptionalField $saved DevicePath
+        $currentPath = Get-OptionalField $CurrentDisplay DevicePath
+        if ($savedPath -and $currentPath) {
+            if ($savedPath -ieq $currentPath) { return $saved }
+            continue
+        }
+        if ($saved.GdiName -eq $CurrentDisplay.GdiName -and
+            $saved.AdapterLow -eq $CurrentDisplay.AdapterLow -and
+            $saved.AdapterHigh -eq $CurrentDisplay.AdapterHigh -and
+            $saved.SourceId -eq $CurrentDisplay.SourceId -and
+            $saved.TargetId -eq $CurrentDisplay.TargetId) { return $saved }
+    }
+    return $null
 }
 
 function Get-GammaEntryForDisplay {
@@ -788,36 +1048,298 @@ function Get-GammaEntryForDisplay {
 
     if (-not (Test-Path -LiteralPath $GammaStatePath)) { return $null }
     try {
-        $gamma = Get-Content -Raw -LiteralPath $GammaStatePath | ConvertFrom-Json
+        # Cache parsed JSON by write time and length. Native file reads avoid idle
+        # Get-Content pipelines; changing records replace the single cached object.
+        $stampNow = $null
+        try {
+            $gammaInfo = New-Object IO.FileInfo($GammaStatePath)
+            $stampNow = '{0}:{1}' -f $gammaInfo.LastWriteTimeUtc.Ticks, $gammaInfo.Length
+        } catch {}
+
+        $gamma = $null
+        if ($null -ne $stampNow -and $stampNow -eq $script:GammaCacheStamp) {
+            # Unchanged since the last read. Fall through to the selection below with
+            # the parse already in hand, so the cache changes only how $gamma is
+            # obtained and never which record is chosen.
+            $gamma = $script:GammaCacheValue
+        }
+        # The GUI publishes this file by writing a temporary copy and renaming over
+        # the original, so a read landing in that window fails. Returning $null then
+        # makes the caller fall back to the state captured at install time, which can
+        # assert the OPPOSITE correction variant -- the user's choice appears to
+        # revert seconds after they make it. Retry briefly, and log once if every
+        # attempt fails.
+        $readError = $null
+        for ($attempt = 1; $attempt -le 4 -and -not $gamma; $attempt++) {
+            try {
+                # [IO.File]::ReadAllText rather than Get-Content -Raw: same bytes, same
+                # BOM handling, 96 bytes per call retained against 144,821. Measured.
+                $raw = [System.IO.File]::ReadAllText($GammaStatePath)
+                if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                    $gamma = $raw | ConvertFrom-Json
+                    break
+                }
+            } catch { $readError = $_.Exception.Message }
+            Start-Sleep -Milliseconds (40 * $attempt)
+        }
+        if ($gamma -and $null -ne $stampNow) {
+            $script:GammaCacheStamp = $stampNow
+            $script:GammaCacheValue = $gamma
+        }
+        if ($gamma) {
+            Clear-LogOnce 'GAMMA-READ'
+        } elseif ($readError) {
+            Write-LogOnce 'GAMMA-READ' ('Could not read gamma_hotkeys.json after four attempts ({0}); using the state captured at install.' -f $readError)
+        }
+        if (-not $gamma) { return $null }
         if (-not $gamma.displays) { return $null }
+
+        # Records are keyed by an id derived from the adapter LUID, which Windows
+        # reissues on reboots and driver restarts, so one monitor accumulates several
+        # records carrying the same gdi_name. Returning the first match handed the
+        # caller a stale record naming profiles that no longer exist, defeating the
+        # intent comparison in Get-DesiredExtendedProfile. Take the newest record.
+        # Match on the monitor's EDID device path whenever both sides carry one, the
+        # way Find-SavedDisplay already does for State.json. gdi_name is \\.\DISPLAY1 --
+        # a slot Windows reassigns between sessions -- so after a hotplug this handed one
+        # monitor the profile pair belonging to another, while the State.json lookup
+        # beside it, already fixed, disagreed. Records written before the GUI published a
+        # path have none, and still match by slot.
+        $wantPath = [string](Get-OptionalField $CurrentDisplay DevicePath)
+        $candidates = @()
         foreach ($property in $gamma.displays.PSObject.Properties) {
-            if ($property.Value.gdi_name -eq $CurrentDisplay.GdiName) {
-                return $property.Value
+            $entryPath = [string](Get-OptionalField $property.Value device_path)
+            if ($wantPath -and $entryPath) {
+                if ($entryPath -eq $wantPath) { $candidates += $property.Value }
+            } elseif ($property.Value.gdi_name -eq $CurrentDisplay.GdiName) {
+                $candidates += $property.Value
             }
         }
+        if ($candidates.Count -eq 0) { return $null }
+        if ($candidates.Count -eq 1) { return $candidates[0] }
+
+        # When no timestamp is usable, fall back to the last record written.
+        $best = $candidates[$candidates.Count - 1]
+        $bestAt = $null
+        foreach ($candidate in $candidates) {
+            $at = ConvertTo-GammaTimestamp ([string]$candidate.updated_at)
+            if ($null -eq $at) { continue }
+            if (($null -eq $bestAt) -or ($at -gt $bestAt)) {
+                $best = $candidate
+                $bestAt = $at
+            }
+        }
+        return $best
     } catch {}
     return $null
 }
 
+$script:LastLogOnce = @{}
+$script:GammaCacheStamp = $null
+$script:GammaCacheValue = $null
+
+function Write-LogOnce {
+    param([string]$Key, [string]$Message)
+
+    # For conditions that are a *state* rather than an event. The four call sites --
+    # a requested correction whose profiles are not installed, a failing STANDARD or
+    # EXTENDED write, and gamma_hotkeys.json that cannot be read -- all sit on the
+    # reconcile path, which runs about 1.3 times a
+    # second per display. At roughly 140 bytes a line that is 500 KB in an hour, and
+    # Write-Log rotates at 512 KB keeping one .old, so a fault that lasted two hours
+    # erased every line from before it happened. The log exists to answer "what took my
+    # profile, and when"; flooding it with the consequence destroys the evidence of the
+    # cause.
+    #
+    # Keyed on display and site, deduped on the message itself rather than on a timer,
+    # so a fault that changes -- a different HRESULT, a different variant -- is reported
+    # again immediately. Clear-LogOnce is called from the matching success branch, so a
+    # condition that comes back is logged afresh rather than silenced forever.
+    if ($script:LastLogOnce[$Key] -eq $Message) { return }
+    if ($script:LastLogOnce.Count -ge 128 -and -not $script:LastLogOnce.ContainsKey($Key)) { $script:LastLogOnce.Clear() }
+    $script:LastLogOnce[$Key] = $Message
+    Write-Log $Message
+}
+
+function Clear-LogOnce {
+    param([string]$Key)
+
+    if ($script:LastLogOnce.ContainsKey($Key)) { $script:LastLogOnce.Remove($Key) }
+}
+
+function ConvertTo-GammaTimestamp {
+    param([string]$Value)
+
+    # Both sides have written slightly different ISO-8601 shapes: the GUI wrote a naive
+    # local time for a long while, this script writes a round-trip value with an offset.
+    # AssumeLocal makes the naive form comparable. A malformed or empty value must return
+    # $null rather than throw, because $ErrorActionPreference is 'Stop' here.
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $parsed = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse(
+            $Value,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::AssumeLocal,
+            [ref]$parsed)) {
+        return $parsed
+    }
+    return $null
+}
+
+function Resolve-BaseExtendedProfile {
+    param($GammaEntry, [string]$CurrentExtended)
+
+    # The captured HDR fallback must be the user's own profile, never one of Virtual
+    # HDR OSD's generated working profiles: adopting one makes the watchdog restore
+    # already-edited data as though it were the source.
+    #
+    # The GUI publishes both a name and a full path. Older builds wrote the ICC
+    # description into the name field, which is not a filename at all -- Windows HDR
+    # Calibration describes a profile with slashes in it -- so the path is tried as
+    # well before giving up.
+    $candidates = @()
+    if ($GammaEntry) {
+        if ($GammaEntry.PSObject.Properties.Name -contains 'base_profile') {
+            $candidates += [string]$GammaEntry.base_profile
+        }
+        if ($GammaEntry.PSObject.Properties.Name -contains 'base_profile_path') {
+            $raw = [string]$GammaEntry.base_profile_path
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                try { $candidates += [System.IO.Path]::GetFileName($raw) } catch {}
+            }
+        }
+    }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        if ($candidate -match '^Virtual_HDR_OSD_') { continue }
+        if (Test-InstalledColorProfile $candidate) { return $candidate }
+    }
+
+    # Nothing usable. Keep the current association only when it is not ours; an
+    # app-managed name here would be a circular fallback, so report none instead.
+    if ($CurrentExtended -match '^Virtual_HDR_OSD_') { return '' }
+    return $CurrentExtended
+}
+
 function Get-DesiredExtendedProfile {
-    param($CurrentDisplay, $SavedDisplay)
+    param($CurrentDisplay, $SavedDisplay, [switch]$Persist)
+
+    $entry = Get-GammaEntryForDisplay -CurrentDisplay $CurrentDisplay
+
+    # Whichever side acted most recently wins.
+    #
+    # Virtual HDR OSD records its own correction changes in gamma_hotkeys.json; this
+    # script records the switches it performs itself in State.json. Previously only the
+    # captured GammaEnabled below was consulted, so a correction change made in the GUI
+    # was re-associated back to the opposite variant by the next forced restore, roughly
+    # every five seconds, with no way for the user to make it stick.
+    if ($entry -and ($entry.PSObject.Properties.Name -contains 'enabled')) {
+        $guiAt = ConvertTo-GammaTimestamp ([string]$entry.updated_at)
+        $ownAt = $null
+        if ($SavedDisplay.PSObject.Properties.Name -contains 'GammaUpdatedAt') {
+            $ownAt = ConvertTo-GammaTimestamp ([string]$SavedDisplay.GammaUpdatedAt)
+        }
+
+        if ($guiAt -and ((-not $ownAt) -or ($guiAt -gt $ownAt))) {
+            $wanted = $(if ([bool]$entry.enabled) { 'On' } else { 'Off' })
+
+            # Prefer the filenames the GUI last published. It regenerates the working pair
+            # under new names whenever the adapter LUID changes, which State.json captured
+            # at install time cannot know about.
+            $name = $null
+            if (($entry.PSObject.Properties.Name -contains 'profiles') -and $entry.profiles) {
+                if ($entry.profiles.PSObject.Properties.Name -contains $wanted) {
+                    $name = [string]$entry.profiles.$wanted
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($name)) {
+                $name = [string]$(if ($wanted -eq 'On') { $SavedDisplay.WorkingOn } else { $SavedDisplay.WorkingOff })
+            }
+
+            # Never hand Windows a profile that is not installed.
+            if ((-not [string]::IsNullOrWhiteSpace($name)) -and (Test-InstalledColorProfile -ProfileName $name)) {
+                # Recovered: forget the "not installed" line so the next occurrence is
+                # reported rather than deduped against a fault that has since been fixed.
+                Clear-LogOnce ('{0}|GAMMA-UNAVAILABLE' -f $CurrentDisplay.GdiName)
+                if ($Persist -and $SavedDisplay.GammaUpdatedAt -ne [string]$entry.updated_at) {
+                    $SavedDisplay.GammaEnabled = [bool]$entry.enabled
+                    $SavedDisplay.GammaUpdatedAt = [string]$entry.updated_at
+                    if ($entry.profiles.Off -and $entry.profiles.On -and
+                        (Test-InstalledColorProfile $entry.profiles.Off) -and
+                        (Test-InstalledColorProfile $entry.profiles.On)) {
+                        $SavedDisplay.WorkingOff = [string]$entry.profiles.Off
+                        $SavedDisplay.WorkingOn = [string]$entry.profiles.On
+                    }
+                    Save-JsonAtomic -Path $StatePath -Value $state
+                }
+                return $name
+            }
+
+            # The requested variant is unusable. Falling through to the captured state
+            # here would answer with the OPPOSITE variant whenever GammaEnabled still
+            # disagrees -- turning the correction back ON moments after the user chose
+            # Off, which is precisely the guarantee this block exists to keep. Try the
+            # captured name for the SAME direction, and otherwise change nothing.
+            $sameDirection = [string]$(if ($wanted -eq 'On') { $SavedDisplay.WorkingOn } else { $SavedDisplay.WorkingOff })
+            if ((-not [string]::IsNullOrWhiteSpace($sameDirection)) -and
+                (Test-InstalledColorProfile -ProfileName $sameDirection)) {
+                Clear-LogOnce ('{0}|GAMMA-UNAVAILABLE' -f $CurrentDisplay.GdiName)
+                return $sameDirection
+            }
+            # Once per distinct message: this branch's precondition -- the GUI asking for
+            # a variant whose profile is not installed -- is a state that persists until
+            # someone reinstalls it, and it is reached on every reconcile pass.
+            Write-LogOnce ('{0}|GAMMA-UNAVAILABLE' -f $CurrentDisplay.GdiName) (
+                'Gamma correction {0} was requested for {1} but no installed profile provides it; leaving the association unchanged.' -f $wanted.ToUpper(), $CurrentDisplay.GdiName)
+            return ''
+        }
+    }
 
     # The standalone watchdog owns a persistent copy of the prepared Off/On names.
     # This works even when Virtual HDR OSD is closed and its runtime JSON is stale.
+    #
+    # "Never hand Windows a profile that is not installed" applied only to the branch
+    # above, and these names need it more, not less: they are captured at install time
+    # and the working pair embeds the adapter LUID, which Windows reissues across
+    # reboots, so they go stale by design rather than by accident.
+    #
+    # A missing name here returns '' -- change nothing -- rather than falling through to
+    # the next candidate. Falling through would answer with the OPPOSITE variant
+    # whenever the pair is half-installed, turning the correction back on moments after
+    # the user chose Off, which is the same guarantee the block above exists to keep.
     if ($SavedDisplay.PSObject.Properties.Name -contains 'GammaEnabled') {
         if ([bool]$SavedDisplay.GammaEnabled -and $SavedDisplay.WorkingOn) {
-            return [string]$SavedDisplay.WorkingOn
+            if (Test-InstalledColorProfile -ProfileName ([string]$SavedDisplay.WorkingOn)) {
+                return [string]$SavedDisplay.WorkingOn
+            }
+            return ''
         }
         if (-not [bool]$SavedDisplay.GammaEnabled -and $SavedDisplay.WorkingOff) {
-            return [string]$SavedDisplay.WorkingOff
+            if (Test-InstalledColorProfile -ProfileName ([string]$SavedDisplay.WorkingOff)) {
+                return [string]$SavedDisplay.WorkingOff
+            }
+            return ''
         }
     }
 
-    $entry = Get-GammaEntryForDisplay -CurrentDisplay $CurrentDisplay
-    if ($entry -and $entry.active_profile) {
+    # No pair captured for this display, so there is no variant to get wrong and the
+    # remaining candidates can be tried in turn.
+    if ($entry -and $entry.active_profile -and
+        (Test-InstalledColorProfile -ProfileName ([string]$entry.active_profile))) {
         return [string]$entry.active_profile
     }
-    return [string]$SavedDisplay.ExtendedProfile
+    if ($SavedDisplay.ExtendedProfile -and
+        (Test-InstalledColorProfile -ProfileName ([string]$SavedDisplay.ExtendedProfile))) {
+        return [string]$SavedDisplay.ExtendedProfile
+    }
+    return ''
+}
+
+function Test-RecoveryHeld {
+    param($Entry)
+    if (-not $Entry -or -not $Entry.recovery_hold_until) { return $false }
+    try { return [DateTime]::Parse([string]$Entry.recovery_hold_until).ToUniversalTime() -gt [DateTime]::UtcNow }
+    catch { return $false }
 }
 
 function Restore-SavedProfiles {
@@ -827,29 +1349,41 @@ function Restore-SavedProfiles {
         [switch]$Force
     )
 
-    if ($SavedDisplay.StandardProfile) {
+    $runtime = Get-GammaEntryForDisplay -CurrentDisplay $CurrentDisplay
+    if ($runtime -and $runtime.restored) { return }
+    if (Test-RecoveryHeld $runtime) {
+        [ColorProfileWatchdog.Native]::PauseRecoveryFor(3000)
+        return
+    }
+    $standard = [string]$SavedDisplay.StandardProfile
+    if ($runtime -and $runtime.sdr_unmanaged) { $standard = '' }
+    elseif ($runtime -and $runtime.sdr_profile -and (Test-InstalledColorProfile $runtime.sdr_profile)) {
+        $standard = [string]$runtime.sdr_profile
+    }
+    if (-not $CurrentDisplay.AdvancedColorEnabled -and $standard) {
         $current = [ColorProfileWatchdog.Native]::GetDefaultProfile(
             $CurrentDisplay,
             [ColorProfileWatchdog.Native]::WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
             [ColorProfileWatchdog.Native]::CPST_STANDARD_DISPLAY_COLOR_MODE
         )
 
-        if ($Force -or $current -ne $SavedDisplay.StandardProfile) {
+        if ($Force -or $current -ne $standard) {
             $hr = [ColorProfileWatchdog.Native]::SetCurrentUserDefault(
                 $CurrentDisplay,
                 [ColorProfileWatchdog.Native]::CPST_STANDARD_DISPLAY_COLOR_MODE,
-                [string]$SavedDisplay.StandardProfile
+                [string]$standard
             )
             if ($hr -lt 0) {
-                Write-Log ('Failed to restore STANDARD profile on {0}: HRESULT {1}' -f $CurrentDisplay.GdiName, (Format-HResult $hr))
+                Write-LogOnce ('{0}|STANDARD' -f $CurrentDisplay.GdiName) ('Failed to restore STANDARD profile on {0}: HRESULT {1}' -f $CurrentDisplay.GdiName, (Format-HResult $hr))
             } else {
-                Write-Log ('Restored STANDARD profile on {0}: {1}' -f $CurrentDisplay.GdiName, $SavedDisplay.StandardProfile)
+                Clear-LogOnce ('{0}|STANDARD' -f $CurrentDisplay.GdiName)
+                Confirm-RestoredProfile -Display $CurrentDisplay -Subtype ([ColorProfileWatchdog.Native]::CPST_STANDARD_DISPLAY_COLOR_MODE) -Expected $standard
             }
         }
     }
 
-    $desiredExtended = Get-DesiredExtendedProfile -CurrentDisplay $CurrentDisplay -SavedDisplay $SavedDisplay
-    if ($desiredExtended) {
+    $desiredExtended = Get-DesiredExtendedProfile -CurrentDisplay $CurrentDisplay -SavedDisplay $SavedDisplay -Persist
+    if ($CurrentDisplay.AdvancedColorEnabled -and $desiredExtended) {
         $current = [ColorProfileWatchdog.Native]::GetDefaultProfile(
             $CurrentDisplay,
             [ColorProfileWatchdog.Native]::WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
@@ -863,9 +1397,10 @@ function Restore-SavedProfiles {
                 [string]$desiredExtended
             )
             if ($hr -lt 0) {
-                Write-Log ('Failed to restore EXTENDED profile on {0}: HRESULT {1}' -f $CurrentDisplay.GdiName, (Format-HResult $hr))
+                Write-LogOnce ('{0}|EXTENDED' -f $CurrentDisplay.GdiName) ('Failed to restore EXTENDED profile on {0}: HRESULT {1}' -f $CurrentDisplay.GdiName, (Format-HResult $hr))
             } else {
-                Write-Log ('Restored EXTENDED profile on {0}: {1}' -f $CurrentDisplay.GdiName, $desiredExtended)
+                Clear-LogOnce ('{0}|EXTENDED' -f $CurrentDisplay.GdiName)
+                Confirm-RestoredProfile -Display $CurrentDisplay -Subtype ([ColorProfileWatchdog.Native]::CPST_EXTENDED_DISPLAY_COLOR_MODE) -Expected $desiredExtended
             }
         }
     }
@@ -877,8 +1412,13 @@ function Invoke-GammaHotkey {
     try {
         $currentDisplays = @(Get-ActiveDisplays)
         foreach ($current in $currentDisplays) {
-            $saved = $state.Displays | Where-Object { $_.GdiName -eq $current.GdiName } | Select-Object -First 1
+            $saved = Find-SavedDisplay -CurrentDisplay $current
             if (-not $saved) { continue }
+            $runtime = Get-GammaEntryForDisplay -CurrentDisplay $current
+            if (($runtime -and $runtime.restored) -or (Test-RecoveryHeld $runtime)) {
+                Write-Log ('Gamma hotkey ignored on {0}: Windows profile is restored or calibration owns the display.' -f $current.GdiName)
+                continue
+            }
 
             $profile = $(if ($Enable) { $saved.WorkingOn } else { $saved.WorkingOff })
             if (-not $profile) {
@@ -894,33 +1434,36 @@ function Invoke-GammaHotkey {
                 continue
             }
 
+            $saved.GammaEnabled = [bool]$Enable
+            $saved.GammaUpdatedAt = (Get-Date).ToString("o")
+            Save-JsonAtomic -Path $StatePath -Value $state
+
+            # Keep the GUI runtime file synchronized when it exists, but do not depend on it.
+            try {
+                if (Test-Path -LiteralPath $GammaStatePath) {
+                    $gamma = ([IO.File]::ReadAllText($GammaStatePath)) | ConvertFrom-Json
+                    foreach ($property in $gamma.displays.PSObject.Properties) {
+                        if (($current.DevicePath -and $property.Value.device_path -ieq $current.DevicePath) -or
+                            (-not $property.Value.device_path -and $property.Value.gdi_name -eq $current.GdiName)) {
+                            $property.Value.enabled = [bool]$Enable
+                            $property.Value.active_profile = [string]$profile
+                            $property.Value.updated_at = $saved.GammaUpdatedAt
+                        }
+                    }
+                    Save-JsonAtomic -Path $GammaStatePath -Value $gamma
+                }
+            } catch {}
+
             $hr = [ColorProfileWatchdog.Native]::SetCurrentUserDefault(
                 $current,
                 [ColorProfileWatchdog.Native]::CPST_EXTENDED_DISPLAY_COLOR_MODE,
                 [string]$profile
             )
             if ($hr -lt 0) {
+                [ColorProfileWatchdog.Native]::RequestRecovery()
                 Write-Log ('Gamma hotkey profile switch failed on {0}: HRESULT {1}' -f $current.GdiName, (Format-HResult $hr))
                 continue
             }
-
-            $saved.GammaEnabled = [bool]$Enable
-            $state | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $StatePath -Encoding UTF8
-
-            # Keep the GUI runtime file synchronized when it exists, but do not depend on it.
-            try {
-                if (Test-Path -LiteralPath $GammaStatePath) {
-                    $gamma = Get-Content -Raw -LiteralPath $GammaStatePath | ConvertFrom-Json
-                    foreach ($property in $gamma.displays.PSObject.Properties) {
-                        if ($property.Value.gdi_name -eq $current.GdiName) {
-                            $property.Value.enabled = [bool]$Enable
-                            $property.Value.active_profile = [string]$profile
-                            $property.Value.updated_at = (Get-Date).ToString('o')
-                        }
-                    }
-                    $gamma | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $GammaStatePath -Encoding UTF8
-                }
-            } catch {}
 
             $verify = [ColorProfileWatchdog.Native]::GetDefaultProfileWithFallback(
                 $current,
@@ -934,24 +1477,21 @@ function Invoke-GammaHotkey {
 }
 
 function Invoke-ManualRestore {
-    # Alt+3 is an explicit recovery action for a failed HDR/SDR transition.
-    # Retry until Windows exposes a valid display topology again.
-    do {
-        try { $displays = @(Get-ActiveDisplays) } catch { $displays = @() }
-        if ($displays.Count -eq 0) { Start-Sleep -Milliseconds 500 }
-    } while ($displays.Count -eq 0)
-    foreach ($current in $displays) {
-        $saved = $state.Displays | Where-Object { $_.GdiName -eq $current.GdiName } | Select-Object -First 1
-        if ($saved) { Restore-SavedProfiles -CurrentDisplay $current -SavedDisplay $saved -Force }
-    }
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
+    param([switch]$Automatic)
+    # No sleep/retry loop here: the native bounded schedule owns retries.
+    if (-not $Automatic) { [ColorProfileWatchdog.Native]::RequestRecovery() }
+    try {
+        $displays = [ColorProfileWatchdog.Native]::GetActiveDisplays()
+        foreach ($current in $displays) {
+            $saved = Find-SavedDisplay -CurrentDisplay $current
+            if ($saved) { Restore-SavedProfiles -CurrentDisplay $current -SavedDisplay $saved -Force }
+        }
+    } catch { Write-Log ('Recovery query failed; later attempts remain available: ' + $_.Exception.Message) }
 }
 
 if ($Install) {
     New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
-    Stop-ExistingWatchdog
-
+    Remove-Item -LiteralPath $ResultPath -Force -ErrorAction SilentlyContinue
     $build = [Environment]::OSVersion.Version.Build
     if ($build -lt 20348) {
         throw 'This standalone watchdog requires Windows build 20348 or newer.'
@@ -986,27 +1526,47 @@ if ($Install) {
         }
     }
 
+    Stop-ExistingWatchdog
+    # Re-read after stopping the old reconciler; it cannot overwrite GUI intent
+    # between the final capture and startup of the new instance.
+    $saved = @()
+    foreach ($display in $displays) { $saved += Get-SavedProfileState -Display $display }
     $state = [PSCustomObject]@{
-        Version     = 2
+        Version     = 4
         CapturedAt  = (Get-Date).ToString('o')
         Displays    = $saved
     }
 
-    $state | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $StatePath -Encoding UTF8
+    Save-JsonAtomic -Path $StatePath -Value $state
 
     $escapedPs1 = $PSCommandPath.Replace('"', '""')
     $vbs = @"
 Set shell = CreateObject("WScript.Shell")
-shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPs1""", 0, False
+If WScript.Arguments.Named.Exists("logon") Then WScript.Sleep 10000
+failures = 0
+Do
+  started = Timer
+  code = shell.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPs1""", 0, True)
+  If code = 0 Or code = 2 Or code = 3 Or code = 4 Then
+    WScript.Quit 0
+  End If
+  elapsed = Timer - started
+  If elapsed < 0 Then elapsed = elapsed + 86400
+  If elapsed >= 60 Then failures = 0
+  failures = failures + 1
+  If failures >= 3 Then WScript.Quit 1
+  WScript.Sleep 5000
+Loop
 "@
-    Set-Content -LiteralPath $LauncherPath -Value $vbs -Encoding ASCII
+    Set-Content -LiteralPath $LauncherPath -Value $vbs -Encoding Unicode
 
     # Register persistence through the Task Scheduler COM API instead of the
     # ScheduledTasks CIM cmdlets.  A SID is unambiguous for local, Microsoft,
     # Entra ID, and domain-backed interactive accounts, and InteractiveToken
-    # requires no stored password. Task Scheduler is mandatory so the watchdog
-    # never silently falls back to the leaky/early HKCU Run startup path.
+    # requires no stored password. HKCU fallback uses the same bounded launcher
+    # and native worker; only registration differs, never the recovery loop.
     $startupMethod = 'Task Scheduler (COM / current-user SID)'
+    $startupWarnings = @()
     $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $currentSid = $currentIdentity.User.Value
     $wscriptPath = Join-Path $env:WINDIR 'System32\wscript.exe'
@@ -1032,6 +1592,7 @@ shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
         $taskDefinition.Settings.StartWhenAvailable = $true
         $taskDefinition.Settings.DisallowStartIfOnBatteries = $false
         $taskDefinition.Settings.StopIfGoingOnBatteries = $false
+        $taskDefinition.Settings.ExecutionTimeLimit = 'PT0S'
         $taskDefinition.Settings.MultipleInstances = 2  # TASK_INSTANCES_IGNORE_NEW
 
         # TASK_LOGON_INTERACTIVE_TOKEN = 3, TASK_RUNLEVEL_LUA = 0.
@@ -1065,7 +1626,20 @@ shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
         Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'ColorProfileModeWatchdog' -Force -ErrorAction SilentlyContinue
     }
     catch {
-        throw ('Task Scheduler registration failed; the watchdog was not installed: ' + $_.Exception.Message)
+        $registrationError = $_.Exception.Message
+        $runCommand = '"{0}" //B //Nologo "{1}" /logon' -f $wscriptPath, $LauncherPath
+        # Windows Run commands have a documented 260-character limit.
+        if ($runCommand.Length -gt 260) {
+            throw ('Task Scheduler failed and the HKCU startup command exceeds 260 characters: ' + $registrationError)
+        }
+        try {
+            New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Force -ErrorAction Stop | Out-Null
+            New-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'ColorProfileModeWatchdog' -Value $runCommand -PropertyType String -Force -ErrorAction Stop | Out-Null
+        }
+        catch { throw ('Task Scheduler and HKCU fallback registration both failed: ' + $_.Exception.Message) }
+        $startupMethod = 'HKCU Run fallback (shared hidden launcher)'
+        $startupWarnings = @('Task Scheduler registration failed (' + $registrationError + '). Using the current-user HKCU Run fallback.')
+        Write-Warning $startupWarnings[0]
     }
     finally {
         if ($taskRoot) { [Runtime.InteropServices.Marshal]::ReleaseComObject($taskRoot) | Out-Null }
@@ -1088,13 +1662,20 @@ shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
     }
 
     Write-Host ''
-    Write-Host ('Startup mode: {0} / hidden / 10-second Task Scheduler delay when supported' -f $startupMethod) -ForegroundColor Green
+    Write-Host ('Startup mode: {0} / hidden / 10-second logon delay' -f $startupMethod) -ForegroundColor Green
     Write-Host ('State: {0}' -f $StatePath)
     Write-Host ('Log  : {0}' -f $LogPath)
 
     Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') `
         -ArgumentList @('//B', '//Nologo', ('"{0}"' -f $LauncherPath)) `
         -WindowStyle Hidden
+    $result = [PSCustomObject]@{
+        ok = $true
+        warnings = $startupWarnings
+        startup  = $startupMethod
+        recorded_at = [DateTime]::UtcNow.ToString('o')
+    }
+    Save-JsonAtomic -Path $ResultPath -Value $result
 
     exit 0
 }
@@ -1106,80 +1687,63 @@ if (-not $createdNew) {
 }
 
 try {
+    [ColorProfileWatchdog.Native]::BeginStartupGuard($LogPath)
+    Write-Log 'Startup: reading saved state.'
     if (-not (Test-Path -LiteralPath $StatePath)) {
         Write-Log 'State.json is missing; watchdog stopped.'
         exit 2
     }
 
-    $state = Get-Content -Raw -LiteralPath $StatePath | ConvertFrom-Json
+    try { $state = Get-Content -Raw -LiteralPath $StatePath | ConvertFrom-Json }
+    catch { Write-Log ('State.json could not be parsed: ' + $_.Exception.Message); exit 2 }
     if (-not $state.Displays) {
         Write-Log 'No saved display associations; watchdog stopped.'
         exit 3
     }
 
+    foreach ($savedDisplay in $state.Displays) {
+        if ($null -eq $savedDisplay.TargetId -or -not $savedDisplay.GammaUpdatedAt) {
+            Write-Log 'Legacy state: rerun the updated installer to capture display identities.'
+            exit 4
+        }
+    }
     Write-Log 'Watchdog started.'
 
-    $lastModes = @{}
-    $lastForced = [DateTime]::MinValue
     $hotkeysRegistered = [ColorProfileWatchdog.Native]::TryRegisterGammaHotkeys()
-    $lastHotkeyRetry = Get-Date
-    Write-Log $(if ($hotkeysRegistered) { 'Global hotkey thread active: Alt+1 OFF, Alt+2 ON, Alt+3 restore.' } else { 'Global hotkey thread unavailable; registration will be retried.' })
-
+    Write-Log $(if ($hotkeysRegistered) { 'Global hotkey thread active: Alt+1 OFF, Alt+2 ON, Alt+3 restore.' } else { 'Some hotkeys unavailable; free hotkeys remain active and missing registrations will be retried.' })
+    $startupCompleted = [ColorProfileWatchdog.Native]::HotkeyLoopReady
+    if ($startupCompleted) { [ColorProfileWatchdog.Native]::CompleteStartup(); Write-Log 'Startup completed.' }
+    $maintenance = [Diagnostics.Stopwatch]::StartNew()
     while ($true) {
-        if (-not $hotkeysRegistered -and ((Get-Date) - $lastHotkeyRetry).TotalSeconds -ge 2.0) {
-            $hotkeysRegistered = [ColorProfileWatchdog.Native]::TryRegisterGammaHotkeys()
-            $lastHotkeyRetry = Get-Date
-            if ($hotkeysRegistered) { Write-Log 'Global hotkey thread started after retry: Alt+1 OFF, Alt+2 ON.' }
+        # Native code probes once per second and owns bounded retry deadlines.
+        # PowerShell does no display pipelines, dates or logging while idle.
+        $recover = [ColorProfileWatchdog.Native]::WaitForDisplayChange(250)
+        $hotkeysRegistered = [ColorProfileWatchdog.Native]::TryRegisterGammaHotkeys()
+        if (-not $startupCompleted -and [ColorProfileWatchdog.Native]::HotkeyLoopReady) {
+            $startupCompleted = $true
+            [ColorProfileWatchdog.Native]::CompleteStartup()
+            Write-Log 'Startup completed after hotkey retry.'
         }
-        while ($true) {
+        for ($command = 0; $command -lt 16; $command++) {
             $hotkey = [ColorProfileWatchdog.Native]::PollGammaHotkey()
             if ($hotkey -eq 0) { break }
-            if ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_OFF) { Invoke-GammaHotkey -Enable $false }
-            elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_ON) { Invoke-GammaHotkey -Enable $true }
-            elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_FORCE_RESTORE) { Invoke-ManualRestore }
-        }
-        if (-not [ColorProfileWatchdog.Native]::WaitForDisplayChange(100)) {
-            continue
-        }
-
-        # A hotkey can arrive while the PowerShell process is blocked in the
-        # event wait. Drain it immediately after waking so Alt+3 is reliable.
-        while ($true) {
-            $hotkey = [ColorProfileWatchdog.Native]::PollGammaHotkey()
-            if ($hotkey -eq 0) { break }
-            if ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_OFF) { Invoke-GammaHotkey -Enable $false }
-            elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_ON) { Invoke-GammaHotkey -Enable $true }
-            elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_FORCE_RESTORE) { Invoke-ManualRestore }
-        }
-
-        # Windows can signal the transition before the new topology is ready.
-        # Retry the query until it succeeds, then return to the event wait.
-        $currentDisplays = $null
-        while ($null -eq $currentDisplays) {
             try {
-                $candidateDisplays = @(Get-ActiveDisplays)
-                if ($candidateDisplays.Count -gt 0) {
-                    $currentDisplays = $candidateDisplays
-                }
-            } catch {
-                Write-Log ('Display query retry: ' + $_.Exception.Message)
-            }
-            if ($null -eq $currentDisplays) {
-                Start-Sleep -Milliseconds 500
-            }
+                if ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_OFF) { Invoke-GammaHotkey -Enable $false }
+                elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_ON) { Invoke-GammaHotkey -Enable $true }
+                elseif ($hotkey -eq [ColorProfileWatchdog.Native]::HOTKEY_FORCE_RESTORE) { Invoke-ManualRestore }
+            } catch { Write-Log ('Hotkey error: ' + $_.Exception.Message) }
         }
-
-        # Treat every display-settings event exactly like the manual Alt+3
-        # recovery. This handles both directions of Win+Alt+B and the Settings
-        # HDR toggle without relying on a stale mode snapshot.
-        try { Invoke-ManualRestore } catch { Write-Log ('Event restore error: ' + $_.Exception.Message) }
-
-        # Release temporary interop objects before waiting for the next event.
-        [GC]::Collect()
-        [GC]::WaitForPendingFinalizers()
+        if ($recover) { Invoke-ManualRestore -Automatic }
+        # A bounded maintenance cadence rather than full blocking GC per event.
+        if ($maintenance.ElapsedMilliseconds -ge 60000) {
+            [GC]::Collect(0)
+            $maintenance.Restart()
+        }
     }
+
 }
 finally {
+    [ColorProfileWatchdog.Native]::CompleteStartup()
     try { [ColorProfileWatchdog.Native]::UnregisterGammaHotkeys() } catch {}
     if ($mutex) {
         try { $mutex.ReleaseMutex() } catch {}
