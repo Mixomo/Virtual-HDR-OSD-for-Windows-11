@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass, replace
 from typing import Callable, Sequence
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QRect
 from PySide6.QtGui import QColor, QCursor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
@@ -30,11 +30,12 @@ from .hdr_display import PQ_MAX_NITS, DisplayCapability, HdrDisplayError, HdrSur
 from vhdr_color.patterns import (
     GUIDED_SEQUENCE,
     gamma_reference_nits,
-    gamma_target_nits,
+    gamma_goal,
     MEASUREMENT_SEQUENCE,
     pattern_by_key,
     OVERLAY_NITS,
     PATTERNS,
+    DIAGNOSTIC_PATTERNS,
     WINDOW_AREA_FRACTION,
     Pattern,
     PatternContext,
@@ -54,11 +55,12 @@ OVERLAY_MIN_WIDTH = 460
 # peak that crossing the range would take hundreds of presses.
 PROBE_STEP_PQ = 0.004
 
-# The finished screen is read, not measured against, so it does not need to hide at 12 nits.
-SUMMARY_NITS = 40.0
+# The finished screen is read, not measured against, so it does not need to use the pattern UI brightness.
+SUMMARY_NITS = 120.0
 
 # Identifies the probe-level track among the control tracks when hit-testing.
 PROBE_TRACK_KEY = "probe-level"
+GAMMA_TARGET_TRACK_KEY = "gamma-target"
 
 #: The pen for the "panel declares N" line, and for nothing else. Reserved so that a
 #: test can count that line's ink: the offscreen platform has no font and paints every
@@ -105,9 +107,10 @@ class ControlBinding:
         return True
 
 
-def pattern_keys() -> str:
+def pattern_keys(diagnostic: bool = False) -> str:
     """The number keys that open a pattern: 1-9, then 0 for a tenth."""
-    return "1-9, 0" if len(PATTERNS) > 9 else f"1-{len(PATTERNS)}"
+    count=len(DIAGNOSTIC_PATTERNS if diagnostic else PATTERNS)
+    return "1-9, 0" if count > 9 else f"1-{count}"
 
 
 def context_for(
@@ -149,6 +152,7 @@ def render_overlay(
     controls: Sequence[ControlBinding],
     active: int,
     *,
+    diagnostic: bool = False,
     assumed_peak: bool = False,
     accepted: dict[str, float] | None = None,
     scale: float = 1.0,
@@ -202,24 +206,10 @@ def render_overlay(
         y += spacing(40)
 
         criterion, instructions = pattern.criterion, pattern.instructions
-        if pattern.key == "gamma-match" and context.gamma_view == "match":
-            criterion = "Match TARGET brightness to the fine mid-grey reference."
-            instructions = (
-                "Compare brightness, not texture. Defocus or view farther away until the fine grey reference merges. "
-                "The custom slider moves TARGET only; arrows adjust by 0.005, E types a value. "
-                "Tab selects actual profile tone controls. "
-                "P toggles a smooth averaged PREVIEW, which cannot measure gamma. "
-                "The readout estimates this presentation path, not a profile correction or PQ gamma. G changes view."
-            )
-        elif pattern.key == "gamma-match" and context.gamma_view == "rows":
-            criterion = "Compare fixed gamma rows with your adjustable CUSTOM row."
-            instructions = (
-                "Each row encodes 0, 20, 40, 60, 80 and 100 percent using its labelled gamma. "
-                "Drag the Custom pattern gamma slider, use Left/Right in 0.005 steps, or E for an exact value. "
-                "Compare how the grey steps progress; this is a visual reference, not a measured gamma. "
-                "G returns to profile adjustment, where Tab selects Gamma, Midtone Brightness and Contrast."
-            )
-
+        if pattern.key == "gamma-match" and context.absolute and context.sdr_white_nits > context.peak_nits:
+            instructions = ("SDR white exceeds the reported peak. Reduce Windows SDR content brightness "
+                            "before evaluating gamma; clipping or tone mapping can prevent a valid match.\n\n"
+                            + instructions)
         body = QFont()
         body.setPointSize(points(10))
         painter.setFont(body)
@@ -257,14 +247,10 @@ def render_overlay(
         y = box.bottom() + spacing(26)
 
         if pattern.key == "gamma-match":
-            mode = {"profile": "PROFILE adjustment (fixed target)", "match": "REFERENCE match (pattern only)", "rows": "REFERENCE rows (pattern only)"}[context.gamma_view]
-            painter.drawText(margin, y, mode)
+            painter.drawText(margin, y, f"PATTERN TARGET {gamma_goal(context):.1f}; Up/Down, Home resets")
             y += spacing(30)
-            if context.gamma_view == "match" and context.gamma_average_preview:
-                painter.drawText(margin, y, "AVERAGE PREVIEW: not a gamma measurement")
-                y += spacing(30)
             reference = gamma_reference_nits(context)
-            painter.drawText(margin, y, f"Reference {reference:g}; TARGET input {gamma_target_nits(context):.4g}" + (" nits" if context.absolute else " (relative)"))
+            painter.drawText(margin, y, f"Desktop reference white {reference:g}" + (" nits" if context.absolute else " (relative)"))
             y += spacing(30)
 
         def draw_track(top: int, fraction: float, active: bool, key: str = "") -> None:
@@ -288,6 +274,10 @@ def render_overlay(
                 # Reported rather than recomputed by the caller: two copies of this layout
                 # would drift the moment either side changed.
                 tracks.append((key, margin, top - spacing(8), track_width, height_px + spacing(16)))
+
+        if pattern.key == "gamma-match":
+            draw_track(y,(gamma_goal(context)-1.6)/1.4,True,key=GAMMA_TARGET_TRACK_KEY)
+            y += spacing(30)
 
         if pattern.level_driven:
             # The display holds still and the pattern moves, so the sliders are not what
@@ -346,38 +336,38 @@ def render_overlay(
 
         y += spacing(10)
         painter.setPen(QColor(130, 130, 130, 255))
-        adjust = "← →  move the level" if pattern.level_driven else "← →  adjust"
-        walk = "↑ ↓   next level" if pattern.levels is not None else ""
-        last = step is not None and step >= total
-        if pattern.level_driven and pattern.records:
-            confirm = "Enter  record it and finish" if last else "Enter  record it"
+        last=False
+        if diagnostic:
+            lines=[f"{pattern_keys(True)}   diagnostic pattern","Left/Right   previous/next", "H     move this panel", "Esc   exit"]
         else:
-            confirm = "Enter  finish" if last else "Enter  done, next step"
-        lines = [f"{pattern_keys()}   pattern"] if step is None else ["N     skip this step; keep existing values"]
-        if not pattern.level_driven and controls:
-            lines.append("Tab   next control")
-        if pattern.key == "gamma-match" and context.gamma_view == "match":
-            lines.append("P     average preview / textured measurement")
-        if pattern.key == "gamma-match":
-            lines.append("G     profile / reference match / reference rows")
-        lines += [adjust]
-        if walk:
-            lines.append(walk)
-        # A level-driven pattern that records nothing has no Enter to offer, unless a
-        # guided run needs it to move on.
-        if (pattern.level_driven and pattern.records) or step is not None:
-            lines.append(confirm)
-        if any(control.write for control in controls) or pattern.level_driven:
-            lines.append("E     type a value")
-        if step is None and accepted:
-            # Readings taken, but no longer in the sequence: pressing an advertised
-            # digit key leaves the guided run, and nothing said so or offered a way
-            # back. The results screen was then unreachable for the life of the window,
-            # even though the same hazard had already been fixed for the finished
-            # screen. Nothing is lost either way -- readings are persisted as they are
-            # taken -- but a dead end that the overlay itself invited is still a dead end.
-            lines.append("S     back to the results")
-        lines += ["H     move this panel", "Esc   exit"]
+            adjust = "← →  move the level" if pattern.level_driven else "← →  adjust"
+            walk = "↑ ↓   next level" if pattern.levels is not None else ""
+            last = step is not None and step >= total
+            if pattern.level_driven and pattern.records:
+                confirm = "Enter  record it and finish" if last else "Enter  record it"
+            else:
+                confirm = "Enter  finish" if last else "Enter  done, next step"
+            lines = [f"{pattern_keys()}   pattern"] if step is None else ["N     skip this step; keep existing values"]
+            if not pattern.level_driven and controls:
+                lines.append("Tab   next control")
+            lines += [adjust]
+            if walk:
+                lines.append(walk)
+            # A level-driven pattern that records nothing has no Enter to offer, unless a
+            # guided run needs it to move on.
+            if (pattern.level_driven and pattern.records) or step is not None:
+                lines.append(confirm)
+            if any(control.write for control in controls) or pattern.level_driven:
+                lines.append("E     type a value")
+            if step is None and accepted:
+                # Readings taken, but no longer in the sequence: pressing an advertised
+                # digit key leaves the guided run, and nothing said so or offered a way
+                # back. The results screen was then unreachable for the life of the window,
+                # even though the same hazard had already been fixed for the finished
+                # screen. Nothing is lost either way -- readings are persisted as they are
+                # taken -- but a dead end that the overlay itself invited is still a dead end.
+                lines.append("S     back to the results")
+            lines += ["H     move this panel", "Esc   exit"]
         for line in lines:
             painter.drawText(margin, y, line)
             y += spacing(20)
@@ -530,7 +520,6 @@ class PatternWindow(QWidget):
         hdr_enabled: bool | None = None,
         feedback: Callable[[], str] | None = None,
         validate: Callable[[], str] | None = None,
-        gamma_white: Callable[[], float | None] | None = None,
         desktop_white: Callable[[], float | None] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -548,26 +537,27 @@ class PatternWindow(QWidget):
             and not (panel is not None and panel.credible)
         )
         self._panel = panel
-        self._context = replace(context_for(capability, sdr_white_nits, panel), gamma_view="match")
+        self._context = context_for(capability, sdr_white_nits, panel)
         if hdr_enabled is not None:
             self._context = replace(self._context, is_hdr=hdr_enabled)
         self._feedback = feedback
         self._validate = validate
-        self._gamma_white = gamma_white
         self._desktop_white = desktop_white
         self._blocked_reason = ""
         self._feedback_text = ""
         self._notice = ""
         self._pattern_probes: dict[str, tuple[float, bool]] = {}
-        self._controls = list(controls)
+        self._diagnostic_mode = not guided
+        self._catalog = DIAGNOSTIC_PATTERNS if self._diagnostic_mode else PATTERNS
+        self._controls = [] if self._diagnostic_mode else list(controls)
         self._active = 0
         self._pattern_index = 0
         self._overlay_side = "right"
         self._surface: HdrSurface | None = None
         self._frame: bytes = b""
-        self._measure = measure
+        self._measure = None if self._diagnostic_mode else measure
         self._on_close = on_close
-        self._apply = apply
+        self._apply = None if self._diagnostic_mode else apply
         self.applied = False
         #: Set when an apply was attempted and Windows refused it. The status bar that
         #: carries the reason is a child of the window this one covers, so without a
@@ -581,6 +571,8 @@ class PatternWindow(QWidget):
         # user who has to work out what to do first will do nothing.
         self._guided = bool(guided) and measure is not None
         self._guided_session = self._guided
+        self._guide_notices_enabled = False
+        self._guide_screen: str | None = None
         self.skipped: set[str] = set()
         self._step = 0
         self._complete = False
@@ -623,7 +615,9 @@ class PatternWindow(QWidget):
             self.failure = str(exc)
             return False
         if self._guided:
+            self._guide_notices_enabled = True
             self._apply_guided_step()
+            self._guide_screen = "intro"
         else:
             self._start_level()
         self.refresh()
@@ -644,25 +638,19 @@ class PatternWindow(QWidget):
     # -- state -----------------------------------------------------------------------
 
     @property
+    def diagnostic_mode(self) -> bool:
+        return self._diagnostic_mode
+
+    @property
     def pattern(self) -> Pattern:
-        return PATTERNS[self._pattern_index % len(PATTERNS)]
+        return self._catalog[self._pattern_index % len(self._catalog)]
 
     @property
     def available_controls(self) -> list[ControlBinding]:
-        if self.pattern.key == "gamma-match" and self._context.gamma_view != "profile":
-            controls = [ControlBinding("reference_gamma", "Custom pattern gamma (does not edit profile)",
-                lambda: self._context.reference_gamma,
-                lambda delta: self.set_reference_gamma(self._context.reference_gamma + delta),
-                step=0.005, minimum=1.0, maximum=3.0, write=self.set_reference_gamma)]
-            if self._context.absolute and self._context.gamma_view == "match":
-                controls += [c for key in ("gamma", "brightness_trim", "contrast")
-                             for c in self._controls if c.key == key]
-            return controls
-        if not self._context.absolute:
+        if self._diagnostic_mode or self._guide_screen is not None or not self._context.absolute:
             return []
         keys = {
             "gamma-match": ("gamma", "brightness_trim", "contrast"),
-            "tone-tracking": ("gamma", "brightness_trim", "contrast"),
             "near-black": ("gamma", "brightness_trim", "contrast"),
             "grey-staircase": ("gamma", "brightness_trim", "contrast"),
             "neutral-ramp": ("temperature", "tint", "red_channel", "green_channel", "blue_channel"),
@@ -675,28 +663,15 @@ class PatternWindow(QWidget):
         controls = self.available_controls
         return controls[self._active % len(controls)] if controls else None
 
-    def set_reference_gamma(self, value: float) -> None:
-        if math.isfinite(float(value)):
-            self._context = replace(self._context, reference_gamma=max(1.0, min(3.0, float(value))))
-
-    def cycle_gamma_view(self) -> None:
-        views = ("profile", "match", "rows")
-        view = views[(views.index(self._context.gamma_view) + 1) % len(views)]
-        self._context = replace(self._context, gamma_view=view)
-        self._active = 0
-        self._editing = None
-        self._dragging = None
-        self._notice = ""
-        self.refresh()
-
     def select_pattern(self, index: int) -> bool:
         # Explicit API selection opens free browsing. Guided keyboard handlers never
         # call this: their digits remain disabled through the results screen.
+        self._guide_screen = None
         self._guided_session = False
         self._guided = False
         self._pattern_probes[self.pattern.key] = (self.probe_nits, self._probe_moved)
         self._showing_summary = False
-        self._pattern_index = index % len(PATTERNS)
+        self._pattern_index = index % len(self._catalog)
         self._editing = None
         self._dragging = None
         self._notice = ""
@@ -724,8 +699,24 @@ class PatternWindow(QWidget):
         self._context = replace(self._context, probe_nits=start)
         self._probe_moved = False
 
+    def set_gamma_target(self, value: float) -> None:
+        if self._diagnostic_mode:
+            return
+        if self._diagnostic_mode or self._guide_screen is not None or self._showing_summary or not self._check_environment():
+            return
+        if not math.isfinite(value): return
+        # Integer tenths avoid accumulated floating-point errors and irregular steps.
+        ticks=max(16,min(30,math.floor(value*10+0.5)))
+        self._context=replace(self._context,gamma_target=ticks/10)
+        self.refresh()
+
+    def change_gamma_target(self, direction: int) -> None:
+        self.set_gamma_target(gamma_goal(self._context)+direction*0.1)
+
     def step_level(self, direction: int) -> None:
         """Walk a stepped pattern's levels, settling the eye at each one."""
+        if self._diagnostic_mode:
+            return
         levels = self.pattern.levels
         if levels is None:
             return
@@ -739,6 +730,8 @@ class PatternWindow(QWidget):
         self.refresh()
 
     def next_control(self) -> None:
+        if self._diagnostic_mode:
+            return
         if self.available_controls:
             self._active = (self._active + 1) % len(self.available_controls)
             self.refresh()
@@ -758,7 +751,9 @@ class PatternWindow(QWidget):
         one key do both is not overloading: in each case it moves the only thing there is
         to move, and a separate key would mean remembering which pattern you are on.
         """
-        if self._showing_summary or not self._check_environment():
+        if self._diagnostic_mode:
+            return
+        if self._diagnostic_mode or self._guide_screen is not None or self._showing_summary or not self._check_environment():
             return
         if self.pattern.level_driven:
             self.step_probe(direction)
@@ -777,6 +772,8 @@ class PatternWindow(QWidget):
         black, where a threshold is found, and far too fine near peak, where it would take
         hundreds of presses to cross the range.
         """
+        if self._diagnostic_mode:
+            return
         self._notice = ""
         code = pq_inverse_eotf(self._context.probe_nits) + direction * PROBE_STEP_PQ
         code = max(0.0, min(1.0, code))
@@ -791,6 +788,8 @@ class PatternWindow(QWidget):
 
     def set_probe(self, nits: float) -> None:
         """Place the probe at an exact level, for a meter loop to drive the sequence."""
+        if self._diagnostic_mode:
+            return
         if not math.isfinite(float(nits)):
             self._notice = "Enter a finite level. The previous value is kept."
             self.refresh()
@@ -809,6 +808,8 @@ class PatternWindow(QWidget):
 
     def _apply_guided_step(self) -> None:
         key = GUIDED_SEQUENCE[self._step]
+        self._guide_screen = ({"peak-white":"peak-white","full-frame-white":"full-frame"}.get(key)
+                              if self._guide_notices_enabled else None)
         index = next((i for i, p in enumerate(PATTERNS) if p.key == key), 0)
         self._pattern_index = index
         self._active = 0
@@ -819,7 +820,7 @@ class PatternWindow(QWidget):
         self.refresh()
 
     def skip_step(self) -> bool:
-        if not self._guided:
+        if not self._guided or self._guide_screen == "intro":
             return False
         self.skipped.add(self.pattern.key)
         self.advance()
@@ -875,8 +876,10 @@ class PatternWindow(QWidget):
                 y += round(34 * scale)
 
             if self._guided_session and self._complete:
-                for key in ("gamma-match",):
+                for key in GUIDED_SEQUENCE[len(MEASUREMENT_SEQUENCE):]:
                     status = "skipped; existing edits kept" if key in self.skipped else "reviewed"
+                    if key == "gamma-match":
+                        status += f"; target {gamma_goal(self._context):.3f}"
                     painter.drawText(margin, y, f"{pattern_by_key(key).title}: {status}")
                     y += round(34 * scale)
             y += round(24 * scale)
@@ -913,7 +916,9 @@ class PatternWindow(QWidget):
         Stepping from 2.200 to 1.700 one arrow press at a time is not a control anyone
         would use, and on a level-driven pattern the range spans four orders of magnitude.
         """
-        if self._showing_summary or not self._check_environment():
+        if self._diagnostic_mode:
+            return False
+        if self._diagnostic_mode or self._guide_screen is not None or self._showing_summary or not self._check_environment():
             return False
         if not self.pattern.level_driven:
             control = self.active_control
@@ -929,6 +934,8 @@ class PatternWindow(QWidget):
 
     def commit_edit(self) -> bool:
         """Apply the typed value, or discard it if it was not a number."""
+        if self._diagnostic_mode:
+            return False
         text = (self._editing or "").strip()
         self._editing = None
         if not self._check_environment():
@@ -1008,6 +1015,8 @@ class PatternWindow(QWidget):
         used to refuse for the rest of the window's life and the readings already
         taken had nowhere to be seen.
         """
+        if self._diagnostic_mode:
+            return False
         if not self._complete and not self.accepted:
             return False
         self._showing_summary = True
@@ -1023,6 +1032,8 @@ class PatternWindow(QWidget):
         them at the moment of capture -- so nothing here may describe Esc as discarding
         anything.
         """
+        if self._diagnostic_mode:
+            return False
         if not self._check_environment():
             self.refresh()
             return False
@@ -1042,8 +1053,29 @@ class PatternWindow(QWidget):
         mean "done, next" there or the run would stall on it with no way forward that the
         overlay mentions.
         """
+        if self._diagnostic_mode:
+            return False
+        if self._guide_screen is not None:
+            if not self._check_environment():
+                self.refresh()
+                return False
+            self._guide_screen = None
+            self.refresh()
+            return True
         if self.pattern.level_driven:
-            return self.accept_measurement()
+            if self.pattern.key in ("peak-white", "full-frame-white"):
+                self._probe_moved = True  # Enter explicitly confirms the current level.
+            if self.accept_measurement():
+                return True
+            # A white clipping check must not trap the guided workflow at a
+            # metadata constraint. Keep the old value and explicitly report it.
+            if self._guided and self.pattern.key in ("peak-white", "full-frame-white") and self._check_environment():
+                reason=self._notice or "The starting level was not adjusted."
+                self.skip_step()
+                self._notice=f"Previous white step continued; existing profile value kept. {reason}"
+                self.refresh()
+                return True
+            return False
         if self._guided:
             self.advance()
             return True
@@ -1057,10 +1089,12 @@ class PatternWindow(QWidget):
         of the next generated profile. Nothing is measured that the profile does not
         then carry.
         """
+        if self._diagnostic_mode:
+            return False
         if not self._check_environment():
             self.refresh()
             return False
-        if not self.pattern.level_driven or not self.pattern.records or self._measure is None:
+        if self._guide_screen is not None or not self.pattern.level_driven or not self.pattern.records or self._measure is None:
             return False
         if not self._probe_moved:
             # Every step opens somewhere plausible so the first press moves towards the
@@ -1070,13 +1104,9 @@ class PatternWindow(QWidget):
             self.refresh()
             return False
         measured = self._context.probe_nits
-        low, high = (0.0, 100.0) if self.pattern.key == "black-level" else (80.0, PQ_MAX_NITS)
+        low, high = (0.0, 100.0) if self.pattern.key == "black-level" else (0.0, PQ_MAX_NITS)
         if not math.isfinite(measured) or not low <= measured <= high:
             self._notice = f"This reading is outside the profile range ({low:g}-{high:g} nits). Adjust it or skip; nothing was recorded."
-            self.refresh()
-            return False
-        if self.pattern.key == "full-frame-white" and measured > self._context.peak_nits:
-            self._notice = "Full-frame white exceeds peak white. Adjust it or skip; nothing was recorded."
             self.refresh()
             return False
         self._notice = ""
@@ -1090,8 +1120,8 @@ class PatternWindow(QWidget):
         # after this one. Continuing to show the EDID's figure would have the overlay
         # contradicting the reading taken thirty seconds earlier on the same screen.
         if self.pattern.key == "peak-white":
-            self._context = replace(self._context, peak_nits=max(80.0, measured),
-                                    max_full_frame_nits=min(self._context.max_full_frame_nits, max(80.0, measured)))
+            self._context = replace(self._context, peak_nits=measured,
+                                    max_full_frame_nits=self._context.max_full_frame_nits)
             self._assumed_peak = False
         if self.pattern.key == "full-frame-white":
             self._context = replace(self._context, max_full_frame_nits=measured)
@@ -1106,16 +1136,71 @@ class PatternWindow(QWidget):
 
     # -- rendering -------------------------------------------------------------------
 
+    def guide_message(self) -> tuple[str, str]:
+        if self._guide_screen == "intro":
+            return ("Before guided calibration",
+                    "Calibrate Display in the main GUI can read the luminance parameters the monitor "
+                    "reports and populate minimum and maximum brightness automatically. These are "
+                    "reported specifications, not measurements of this individual screen.\n\n"
+                    "Manual adjustment is still useful when those values do not match real minimum "
+                    "and maximum brightness in the current monitor mode and viewing conditions. "
+                    "The following patterns help find visual thresholds.\n\n"
+                    "Enter: continue to black level. Esc: leave.")
+        if self._guide_screen == "peak-white":
+            return ("Before peak white",
+                    "Next is the central white-frame pattern for finding the peak clipping threshold. "
+                    "Depending on the panel, it can be uncomfortably bright.\n\n"
+                    "Move away from the screen and partly close your eyes before pressing Enter. "
+                    "Enter: open the white-frame pattern. N: skip and keep the existing value. Esc: leave.")
+        return ("Optional full-frame white",
+                "Next is White Full Frame: a full-screen white pattern for reviewing sustained-brightness "
+                "conditions. This step is optional.\n\n"
+                "OLED panels can reduce brightness through ABL (Automatic Brightness Limiter), dimming "
+                "the shape and background together. The visual disappearance threshold is not a measurement "
+                "of sustained luminance. This check may be more useful on a MiniLED panel, although its "
+                "dimming and tone mapping can also affect the result. Use a meter to measure sustained nits.\n\n"
+                "Depending on the panel's peak brightness, the next pattern can be uncomfortably bright. "
+                "Move away from the screen and partly close your eyes before pressing Enter.\n\n"
+                "Enter: open the white pattern. N: skip and keep the existing value. Esc: leave.")
+
+    def render_guide_message(self, width: int, height: int, scale: float) -> tuple[bytes, int, int]:
+        title, body = self.guide_message()
+        image = QImage(width, height, QImage.Format.Format_RGBA8888)
+        image.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(image)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            margin = max(8, round(24 * scale))
+            flags = int(Qt.TextFlag.TextWordWrap)
+            for points in range(max(6, round(12 * scale)), 5, -1):
+                font = QFont(); font.setPointSize(points)
+                painter.setFont(font)
+                box = painter.boundingRect(QRect(margin, margin, max(1,width-2*margin), height), flags, title+"\n\n"+body)
+                if box.height() <= height-2*margin: break
+            painter.setPen(QColor(220, 220, 220, 255))
+            painter.drawText(QRect(margin, margin, max(1,width-2*margin), max(1,height-2*margin)), flags, title+"\n\n"+body)
+        finally:
+            painter.end()
+        return bytes(image.constBits()), width, height
+
     def build_frame(self) -> bytes:
         width, height = self.device_size()
         scale = max(1.0, min(3.0, width / OVERLAY_REFERENCE_WIDTH))
         if self._blocked_reason:
             width_strip = min(width, max(OVERLAY_MIN_WIDTH, round(width * 0.34)))
             overlay = render_overlay_fitted(width_strip, height, self.pattern, self._context, [], 0,
-                                           feedback=self._blocked_reason + " Esc closes this session.")
+                                           feedback=self._blocked_reason + " Esc closes this session.",
+                                           diagnostic=self._diagnostic_mode)
             return compose(width, height, pattern_by_key("black-level") or PATTERNS[0],
                            replace(self._context, probe_nits=0.0), fraction=0.0001,
                            overlay=overlay, overlay_side="centre", overlay_nits=SUMMARY_NITS)
+        if self._guide_screen is not None:
+            self._tracks = []
+            return compose(width, height, pattern_by_key("black-level") or PATTERNS[0],
+                           replace(self._context, probe_nits=0.0), fraction=0.0001,
+                           overlay=self.render_guide_message(min(width, max(460, round(width*0.55))),
+                                                            height, scale),
+                           overlay_side="centre", overlay_nits=SUMMARY_NITS)
         if self._showing_summary:
             # Black, so the eyes recover, and nothing on screen that looks adjustable.
             overlay_width = min(width, max(OVERLAY_MIN_WIDTH, round(width * 0.34)))
@@ -1137,6 +1222,7 @@ class PatternWindow(QWidget):
             overlay_width, overlay_height,
             pattern, self._context, self.available_controls, self._active,
             assumed_peak=self._assumed_peak, accepted=self.accepted, scale=scale,
+            diagnostic=self._diagnostic_mode,
             step=self.guided_step, total=len(GUIDED_SEQUENCE), editing=self._editing,
             tracks=self._tracks, probe_moved=self._probe_moved,
             declared=self._declared_for(pattern), feedback=self._feedback_text,
@@ -1163,11 +1249,6 @@ class PatternWindow(QWidget):
             white = self._desktop_white()
             if white is not None and math.isfinite(white) and white > 0 and white != self._context.sdr_white_nits:
                 self._context = replace(self._context, sdr_white_nits=white)
-                changed = True
-        if self._gamma_white is not None:
-            white = self._gamma_white()
-            if white != self._context.gamma_white_nits:
-                self._context = replace(self._context, gamma_white_nits=white)
                 changed = True
         return changed
 
@@ -1218,7 +1299,7 @@ class PatternWindow(QWidget):
         return None
 
     def _set_from_track(self, key: str, x: float) -> None:
-        if self._showing_summary or not self._check_environment():
+        if self._diagnostic_mode or self._guide_screen is not None or self._showing_summary or not self._check_environment():
             return
         ratio = self.devicePixelRatioF() or 1.0
         left, _top = self._overlay_origin
@@ -1226,7 +1307,9 @@ class PatternWindow(QWidget):
             if entry != key or tw <= 0:
                 continue
             fraction = max(0.0, min(1.0, ((x * ratio - left) - tx) / tw))
-            if key == PROBE_TRACK_KEY:
+            if key == GAMMA_TARGET_TRACK_KEY:
+                self.set_gamma_target(1.6+fraction*1.4)
+            elif key == PROBE_TRACK_KEY:
                 self.set_probe(min(PQ_MAX_NITS, pq_eotf(fraction)))
             else:
                 control = next((c for c in self.available_controls if c.key == key), None)
@@ -1269,6 +1352,22 @@ class PatternWindow(QWidget):
         if not self._check_environment():
             self.refresh()
             return
+        if self._diagnostic_mode:
+            if Qt.Key.Key_1 <= key <= Qt.Key.Key_9 or key == Qt.Key.Key_0:
+                index=9 if key==Qt.Key.Key_0 else key-Qt.Key.Key_1
+                if index<len(self._catalog):self.select_pattern(index)
+            elif key in (Qt.Key.Key_Left,Qt.Key.Key_PageUp):self.select_pattern(self._pattern_index-1)
+            elif key in (Qt.Key.Key_Right,Qt.Key.Key_PageDown):self.select_pattern(self._pattern_index+1)
+            elif key==Qt.Key.Key_H:self.toggle_side()
+            return
+        if self._guide_screen is not None:
+            if event.isAutoRepeat():
+                return
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.confirm_step()
+            elif key == Qt.Key.Key_N and self._guide_screen in ("peak-white","full-frame"):
+                self.skip_step()
+            return
         if self._showing_summary:
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self.apply_measurements()
@@ -1288,16 +1387,17 @@ class PatternWindow(QWidget):
             if index < len(PATTERNS):
                 self.select_pattern(index)
             return
-        if key == Qt.Key.Key_P and self.pattern.key == "gamma-match" and self._context.gamma_view == "match":
-            self._context = replace(self._context, gamma_average_preview=not self._context.gamma_average_preview)
-            self.refresh()
-            return
-        if key == Qt.Key.Key_G and self.pattern.key == "gamma-match":
-            self.cycle_gamma_view()
-            return
         if key == Qt.Key.Key_Tab:
             self.next_control()
             return
+        if self.pattern.key == "gamma-match":
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                self.change_gamma_target(1 if key == Qt.Key.Key_Up else -1)
+                return
+            if key == Qt.Key.Key_Home:
+                self._context=replace(self._context,gamma_target=2.2)
+                self.refresh()
+                return
         if self.pattern.levels is not None and key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             # Up and Down walk the levels here; Left and Right keep driving the sliders,
             # so both jobs the step needs are reachable without a mode.

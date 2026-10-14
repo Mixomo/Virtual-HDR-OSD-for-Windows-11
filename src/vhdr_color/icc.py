@@ -728,10 +728,10 @@ def import_profile(path: Path, fallback_mode: DisplayMode) -> ImportedProfile:
         minimum_nits, peak_nits, matrix, red, green, blue = parsed_mhc2
         state = _estimate_state_from_curves(fallback_mode, (red, green, blue))
         state.minimum_luminance_nits = max(0.0, min(100.0, minimum_nits))
-        state.peak_luminance_nits = max(80.0, min(10000.0, peak_nits))
+        state.peak_luminance_nits = max(0.0, min(10000.0, peak_nits))
         full_frame = _parse_xyz_y(tags.get(b"lumi", b""))
         if full_frame is not None:
-            state.full_frame_luminance_nits = max(80.0, min(state.peak_luminance_nits, full_frame))
+            state.full_frame_luminance_nits = max(0.0, min(10000.0, full_frame))
         # A third-party XYZ matrix may contain calibration, primaries adaptation, or
         # vendor-specific transforms that cannot be safely decomposed into our fine
         # Temperature/Tint/Saturation controls. Keep those user corrections neutral.

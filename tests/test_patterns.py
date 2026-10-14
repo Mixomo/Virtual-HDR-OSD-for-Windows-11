@@ -9,6 +9,7 @@ cannot produce.
 from __future__ import annotations
 
 import struct
+import math
 import unittest
 
 from vhdr_color.gamma_correction import pq_eotf, pq_inverse_eotf
@@ -17,7 +18,6 @@ from vhdr_color.patterns import (
     placement_frame,
     PATTERNS,
     REFERENCE_WHITE_NITS,
-    TONE_TRACKING_DELTA_PQ,
     PatternContext,
     compose,
     measurement_frame,
@@ -114,45 +114,56 @@ class CeilingTests(unittest.TestCase):
 
 
 class GammaMatchTests(unittest.TestCase):
-    """The pattern is only valid if its lines land on individual device pixels."""
+    def test_reference_is_horizontal_black_white_lines_in_device_pixels(self):
+        frame=render(pattern_by_key("gamma-match"),400,900,HDR)
+        for y in range(8):
+            expected=HDR.encode(HDR.sdr_white_nits) if y%2==0 else 0
+            for x in range(8):self.assertEqual(pixel_at(frame,400,x,y)[0],expected)
 
-    WIDTH, HEIGHT = 400, 200
+    def test_nine_dot_centres_share_the_selected_gamma_target(self):
+        from dataclasses import replace
+        from vhdr_color.patterns import gamma_target_nits
+        for gamma in (1.6,2.2,2.4,2.6,3.0):
+            context=replace(HDR,gamma_target=gamma)
+            frame=render(pattern_by_key("gamma-match"),400,900,context)
+            for x in (48,144,240):
+                for y in (354,450,546):
+                    self.assertAlmostEqual(pixel_at(frame,400,x,y)[0]*80,gamma_target_nits(context),delta=.1)
 
-    def setUp(self):
-        self.frame = render(pattern_by_key("gamma-match"), self.WIDTH, self.HEIGHT, HDR)
+    def test_selected_target_labels_distinguish_sdr_video_and_cinema(self):
+        from dataclasses import replace
+        for gamma,role in ((2.2,"SDR desktop"),(2.4,"SDR video"),(2.6,"DCI cinema"),(1.6,"Custom SDR goal")):
+            labels=pattern_by_key("gamma-match").markers(replace(HDR,gamma_target=gamma))
+            self.assertEqual(labels[0].text,f"{gamma:.3f} SDR TARGET")
+            self.assertEqual(labels[1].text,role)
 
-    def test_lines_alternate_every_single_row(self):
-        """One resampled line and the pattern reports a gamma that was never on screen."""
-        edge = 2  # sample away from the centre patches
-        lit = [pixel_at(self.frame, self.WIDTH, edge, y)[0] for y in range(0, 40, 2)]
-        dark = [pixel_at(self.frame, self.WIDTH, edge, y)[0] for y in range(1, 41, 2)]
-        self.assertTrue(all(value > 0.0 for value in lit), "even rows should be lit")
-        self.assertTrue(all(value == 0.0 for value in dark), "odd rows should be black")
+    def test_feathering_preserves_complete_optical_reference_pairs(self):
+        from vhdr_color.patterns import gamma_target_nits
+        frame=render(pattern_by_key("gamma-match"),400,900,HDR)
+        solid=round(HDR.encode(gamma_target_nits(HDR)),3)
+        for y in range(330,380,2):
+            for x in range(15,80):
+                a,b=[pixel_at(frame,400,x,row)[0] for row in (y,y+1)]
+                if round(a,3)==solid:self.assertEqual(a,b)
+                else:self.assertEqual((a,b),(3,0))
 
-    def test_the_lit_line_is_at_reference_white(self):
-        value = pixel_at(self.frame, self.WIDTH, 2, 0)[0]
-        self.assertAlmostEqual(value, HDR.encode(REFERENCE_WHITE_NITS), places=3)
+    def test_feather_and_centres_match_for_every_selected_power_law_goal(self):
+        from dataclasses import replace
+        from vhdr_color.gamma_correction import srgb_inverse_eotf
+        for goal in (1.6,1.8,2.2,2.4,2.6,3.0):
+            context=replace(HDR,gamma_target=goal)
+            frame=render(pattern_by_key("gamma-match"),400,900,context)
+            for y in range(330,380,2):
+                for x in range(15,80):
+                    values=[pixel_at(frame,400,x,row)[0]/3 for row in (y,y+1)]
+                    # Model a known SDR power-law response after recovering the
+                    # original SDR signal from this linear HDR surface.
+                    mean=sum(srgb_inverse_eotf(v)**goal for v in values)/2
+                    self.assertAlmostEqual(mean,0.5,delta=.0008)
 
-    def test_a_candidate_patch_sits_at_true_half_luminance(self):
-        """scRGB is linear, so interleaved lines average to exactly half. One patch must
-        be at that value or the pattern has no correct answer."""
-        expected = HDR.encode(REFERENCE_WHITE_NITS / 2.0)
-        centre = self.WIDTH // 2
-        column = [pixel_at(self.frame, self.WIDTH, centre, y)[0] for y in range(self.HEIGHT)]
-        self.assertTrue(
-            any(abs(value - expected) < 1e-3 for value in column),
-            f"no patch at {expected:.4f}; column held {sorted(set(round(v, 4) for v in column))}",
-        )
-
-    def test_patches_bracket_the_ideal_in_both_directions(self):
-        """A mismatch should read as a direction, so candidates must straddle the answer."""
-        ideal = HDR.encode(REFERENCE_WHITE_NITS / 2.0)
-        centre = self.WIDTH // 2
-        values = {round(pixel_at(self.frame, self.WIDTH, centre, y)[0], 5)
-                  for y in range(self.HEIGHT)}
-        patches = {v for v in values if v > 0.0}
-        self.assertTrue(any(v < ideal - 1e-4 for v in patches), "no darker candidate")
-        self.assertTrue(any(v > ideal + 1e-4 for v in patches), "no brighter candidate")
+    def test_target_labels_are_on_black_outside_the_comparison(self):
+        frame=render(pattern_by_key("gamma-match"),400,900,HDR)
+        self.assertEqual(pixel_at(frame,400,340,450)[0],0)
 
 
 class StaircaseTests(unittest.TestCase):
@@ -292,7 +303,7 @@ class OverlayPlacementTests(unittest.TestCase):
         frame = compose(self.WIDTH, self.HEIGHT, pattern_by_key("near-black"), HDR,
                         overlay=self.OVERLAY, overlay_side="right")
         nits = pixel_at(frame, self.WIDTH, self.WIDTH - 2, self.HEIGHT // 2)[0] * 80.0
-        self.assertLess(nits, 30.0, "an overlay this bright would engage the limiter")
+        self.assertLess(nits, HDR.sdr_white_nits, "UI should remain below desktop reference white")
         self.assertGreater(nits, 1.0, "an overlay this dim would be unreadable")
 
     def test_a_transparent_overlay_contributes_no_light(self):
@@ -356,187 +367,10 @@ class ShapeSensitivityTests(unittest.TestCase):
                 self.assertAlmostEqual(shape / surround, SHAPE_CONTRAST, places=2)
 
 
-class ToneTrackingTests(unittest.TestCase):
-    """One level at a time. Adaptation follows the brightest thing in view, so a bright
-    field anywhere on screen makes a near-threshold patch at the dark end unjudgeable no
-    matter what the display is doing -- the reading then describes the viewer, not the
-    panel. The first version showed all seven at once and was unusable for exactly that."""
-
-    WIDTH, HEIGHT = 400, 300
-
-    def sample(self, level):
-        from dataclasses import replace
-
-        context = replace(HDR, probe_nits=level)
-        frame = render(pattern_by_key("tone-tracking"), self.WIDTH, self.HEIGHT, context)
-        field = pixel_at(frame, self.WIDTH, self.WIDTH // 2, 8)[0] * 80.0
-        bar = pixel_at(frame, self.WIDTH, self.WIDTH // 2, self.HEIGHT // 2)[0] * 80.0
-        return field, bar
-
-    def levels(self):
-        from vhdr_color.patterns import tone_tracking_levels
-
-        return tone_tracking_levels(HDR)
-
-    def test_only_one_level_is_ever_on_screen(self):
-        """The whole point: nothing else in view to drag the eye's adaptation."""
-        from dataclasses import replace
-
-        context = replace(HDR, probe_nits=self.levels()[0])
-        frame = render(pattern_by_key("tone-tracking"), self.WIDTH, self.HEIGHT, context)
-        distinct = {round(value, 5) for value in channels(frame)}
-        self.assertLessEqual(len(distinct), 2, f"more than a field and a bar: {distinct}")
-
-    def test_the_darkest_level_has_no_bright_field_beside_it(self):
-        field, bar = self.sample(self.levels()[0])
-        self.assertLess(max(field, bar), 1.0, "something bright is sharing the screen")
-
-    def test_the_bar_is_a_near_threshold_lift_at_every_level(self):
-        for level in self.levels():
-            field, bar = self.sample(level)
-            with self.subTest(level=round(level, 3)):
-                self.assertGreater(bar, field)
-                self.assertLess(bar / field, 1.20, "too obvious to register a change")
-
-    def test_the_step_is_the_same_perceptual_size_at_every_level(self):
-        for level in self.levels():
-            field, bar = self.sample(level)
-            with self.subTest(level=round(level, 3)):
-                self.assertAlmostEqual(
-                    pq_inverse_eotf(bar) - pq_inverse_eotf(field),
-                    TONE_TRACKING_DELTA_PQ, places=3)
-
-    def test_the_levels_span_shadows_to_highlights(self):
-        levels = self.levels()
-        self.assertEqual(list(levels), sorted(levels))
-        self.assertLess(levels[0], 1.0)
-        self.assertGreater(levels[-1], 100.0)
-
-    def test_nothing_clips_against_the_ceiling(self):
-        for level in self.levels():
-            _field, bar = self.sample(level)
-            self.assertLess(bar, HDR.ceiling_nits)
-
-    def test_the_pattern_declares_its_levels_so_the_view_can_walk_them(self):
-        self.assertIsNotNone(pattern_by_key("tone-tracking").levels)
-
-    def test_the_guidance_names_all_three_controls(self):
-        """A pattern that says something is wrong without saying what to move is a riddle."""
-        text = pattern_by_key("tone-tracking").instructions
-        for control in ("Midtone Brightness", "Contrast", "Gamma"):
-            with self.subTest(control=control):
-                self.assertIn(control, text)
-
-    def test_the_guidance_says_to_walk_the_levels(self):
-        text = pattern_by_key("tone-tracking").instructions
-        self.assertIn("Up and Down", text)
 
 
-class TrackingSensitivityTests(unittest.TestCase):
-    """The step has to sit near the threshold of visibility or the pattern cannot report a
-    change. What the eye sees is the transfer function's slope -- roughly f'(c) times the
-    step -- so an obvious block stays obvious when the curve moves, and reports nothing."""
-
-    def test_the_step_is_within_a_few_just_noticeable_differences(self):
-        from vhdr_color.patterns import TONE_TRACKING_DELTA_PQ
-
-        # One JND is about one to two ten-bit PQ codes.
-        codes = TONE_TRACKING_DELTA_PQ * 1023
-        self.assertLess(codes, 8, "far above threshold: an obvious block, insensitive to the curve")
-        self.assertGreater(codes, 1.5, "below threshold: nothing to see at all")
-
-    def test_no_patch_is_more_than_a_slight_lift_on_its_background(self):
-        """At 0.03 PQ the darkest patch was 2.35x its surround. That is not a faint patch."""
-        from dataclasses import replace
-
-        from vhdr_color.patterns import tone_tracking_levels
-
-        for level in tone_tracking_levels(HDR):
-            context = replace(HDR, probe_nits=level)
-            frame = render(pattern_by_key("tone-tracking"), 400, 300, context)
-            field = pixel_at(frame, 400, 200, 8)[0]
-            bar = pixel_at(frame, 400, 200, 150)[0]
-            with self.subTest(level=round(level, 3)):
-                self.assertLess(bar / field, 1.20,
-                                "too obvious to register a change in the curve")
-                self.assertGreater(bar / field, 1.01, "too faint to find at all")
-
-    def test_moving_a_control_measurably_changes_the_steps(self):
-        """If the controls did not move these, the pattern could not be used to set them."""
-        from dataclasses import replace
-
-        from vhdr_color.curves import build_transform
-        from vhdr_color.model import ModeState
-        from vhdr_color.patterns import tone_tracking_levels
-
-        def lifts(contrast):
-            state = ModeState.neutral("HDR")
-            state.contrast = contrast
-            transform = build_transform(state, hdr=True)
-
-            def through(nits):
-                position = pq_inverse_eotf(nits) * (len(transform.red) - 1)
-                low = int(position)
-                high = min(len(transform.red) - 1, low + 1)
-                return pq_eotf(transform.red[low]
-                               + (transform.red[high] - transform.red[low]) * (position - low))
-
-            found = []
-            for level in tone_tracking_levels(HDR):
-                context = replace(HDR, probe_nits=level)
-                frame = render(pattern_by_key("tone-tracking"), 400, 300, context)
-                field = pixel_at(frame, 400, 200, 8)[0] * 80.0
-                bar = pixel_at(frame, 400, 200, 150)[0] * 80.0
-                found.append(through(bar) / through(field))
-            return found
-
-        neutral, altered = lifts(0.0), lifts(-10.0)
-        changed = [abs(a - b) / (a - 1.0) for a, b in zip(neutral, altered)]
-        self.assertGreater(max(changed), 0.05,
-                           "the controls barely move the steps, so nothing can be judged")
 
 
-class ToneTrackingGuidanceTests(unittest.TestCase):
-    """The guidance has to describe the pattern that is actually on screen. Written for the
-    all-at-once layout, it asked the viewer to compare levels side by side -- the one thing
-    the eye cannot do here, and the reason that layout was abandoned."""
-
-    def instructions(self):
-        return pattern_by_key("tone-tracking").instructions
-
-    def test_it_asks_about_the_level_on_screen_first(self):
-        self.assertIn("Assess the bar here", self.instructions())
-
-    def test_it_says_how_to_reach_the_other_levels(self):
-        self.assertIn("Up and Down", self.instructions())
-
-    def test_it_never_asks_for_a_side_by_side_comparison(self):
-        """Only one level is visible, so nothing can be compared against anything."""
-        text = self.instructions().lower()
-        for phrase in ("squares stand out most", "than the middle", "all seven equally"):
-            with self.subTest(phrase=phrase):
-                self.assertNotIn(phrase, text)
-
-    def test_each_outcome_names_one_control_and_a_direction(self):
-        for line in self.instructions().split("\n"):
-            if "->" not in line:
-                continue
-            with self.subTest(line=line.strip()):
-                symptom, action = line.split("->")
-                self.assertTrue(symptom.strip(), "an outcome with no symptom")
-                self.assertTrue(
-                    any(word in action for word in ("raise", "lower", "adjust")),
-                    "an outcome with no direction to move in",
-                )
-
-    def test_it_says_the_overall_pattern_is_what_matters(self):
-        """A single level says nothing on its own; that has to be stated or it will be
-        read as a per-level verdict."""
-        self.assertIn("overall pattern", self.instructions())
-
-    def test_the_criterion_describes_this_level_not_a_row_of_them(self):
-        criterion = pattern_by_key("tone-tracking").criterion
-        self.assertIn("this level", criterion)
 
 
 class InstructionVoiceTests(unittest.TestCase):
@@ -730,120 +564,97 @@ class PlacementTargetTests(unittest.TestCase):
 
 
 class GammaTranslationRegressionTests(unittest.TestCase):
-    def test_checkerboard_has_an_exact_half_light_reference_in_both_axes(self):
-        frame=render(pattern_by_key("gamma-match"),400,200,HDR)
-        values=[pixel_at(frame,400,x,y)[0] for y in range(2) for x in range(2)]
-        self.assertEqual(values[0],values[3]);self.assertEqual(values[1],values[2])
-        self.assertAlmostEqual(sum(values)/4,HDR.encode(REFERENCE_WHITE_NITS)/2,places=3)
-        self.assertNotEqual(values[0],values[1])
-
-    def test_actual_profile_gamma_moves_target_relative_to_reference_in_the_documented_direction(self):
+    def test_actual_profile_gamma_changes_match_without_changing_the_chart(self):
         from vhdr_color.curves import build_transform
         from vhdr_color.greyscale import sample
         from vhdr_color.model import ModeState
-        for correction in ("Off", "Auto (240 nits)"):
+        from vhdr_color.patterns import gamma_target_nits,gamma_reference_nits,GAMMA_REFERENCE_SIGNALS
+        low,high=GAMMA_REFERENCE_SIGNALS
+        def decode(s): return s/12.92 if s<=.04045 else ((s+.055)/1.055)**2.4
+        for correction in ("Off","Auto (Recommended)"):
             ratios=[]
-            for gamma in (1.6,2.0,2.2,2.4,3.0):
-                state=ModeState.neutral("HDR");state.gamma=gamma;state.sdr_gamma_correction=correction
+            for gamma in (1.6,2.2,3.0):
+                state=ModeState.neutral("HDR"); state.gamma=gamma;state.sdr_gamma_correction=correction
                 lut=build_transform(state,True,240).red
-                reference=pq_eotf(sample(lut,pq_inverse_eotf(203)))
-                target=pq_eotf(sample(lut,pq_inverse_eotf(101.5)))
-                ratios.append(target/reference)
-            with self.subTest(correction=correction):
-                self.assertEqual(ratios,sorted(ratios,reverse=True))
-                self.assertGreater(ratios[0],.5);self.assertLess(ratios[-1],.5)
-        guidance=pattern_by_key("gamma-match").instructions
-        self.assertIn("Left lowers Gamma and brightens",guidance)
-        self.assertIn("Right raises Gamma and darkens",guidance)
+                output=lambda n:pq_eotf(sample(lut,pq_inverse_eotf(n)))
+                white=gamma_reference_nits(HDR)
+                reference=(output(white*decode(low))+output(white*decode(high)))/2
+                ratios.append(output(gamma_target_nits(HDR))/reference)
+            self.assertEqual(ratios,sorted(ratios,reverse=True))
+            self.assertGreater(ratios[0],ratios[-1]+.05)
 
-    def test_target_arrow_is_outside_the_patch_and_points_toward_it(self):
+    def test_fixed_22_marker_is_outside_the_patch(self):
         marker=next(m for m in pattern_by_key("gamma-match").markers(HDR) if m.target)
-        self.assertGreater(marker.x,.625)
-
-    def test_guided_run_has_a_dedicated_gamma_step_before_tone_tracking(self):
-        from vhdr_color.patterns import GUIDED_SEQUENCE
-        self.assertEqual(GUIDED_SEQUENCE,("black-level","peak-white","full-frame-white","gamma-match"))
+        self.assertGreater(marker.x,2/3)
 
 
 class GammaCorrectionRangeTests(unittest.TestCase):
-    def test_low_white_correction_no_longer_leaves_target_outside_the_gamma_range(self):
+    def test_reference_follows_desktop_white_without_silently_changing_it(self):
+        from dataclasses import replace
+        from vhdr_color.patterns import gamma_reference_nits
+        for white in (80,100,240,480):
+            context=replace(HDR,sdr_white_nits=white,peak_nits=300)
+            self.assertEqual(gamma_reference_nits(context),white)
+
+
+class BrowserGammaReferenceTests(unittest.TestCase):
+    def test_targets_encode_grey_signals_once_and_stay_achromatic(self):
+        from vhdr_color.patterns import gamma_target_nits,gamma_reference_nits
+        from vhdr_color.gamma_correction import srgb_inverse_eotf
+        for gamma in (1.6,1.8,2.0,2.2,2.4,2.6,2.8,3.0):
+            signal=srgb_inverse_eotf(gamma_target_nits(HDR,gamma)/gamma_reference_nits(HDR))
+            self.assertGreater(signal,0);self.assertLess(signal,1)
+        frame=render(pattern_by_key("gamma-match"),200,180,HDR)
+        for r,g,b,a in struct.iter_unpack("<4e",frame): self.assertEqual((r,g,b),(r,r,r))
+
+
+
+
+class SdrInHdrOpticalMatchingTests(unittest.TestCase):
+    def test_target_is_srgb_signal_decoded_once_not_pre_matched_linear_half(self):
+        from vhdr_color.patterns import gamma_target_nits,gamma_reference_nits
+        signal=0.5**(1/2.2)
+        expected=((signal+0.055)/1.055)**2.4
+        fraction=gamma_target_nits(HDR)/gamma_reference_nits(HDR)
+        self.assertAlmostEqual(fraction,expected,places=12)
+        self.assertGreater(abs(fraction-0.5),0.008)
+        self.assertAlmostEqual(signal,0.7297400528407231,places=12)
+
+    def test_rendered_22_patch_matches_optical_reference_after_one_profile_correction(self):
         from dataclasses import replace
         from vhdr_color.curves import build_transform
         from vhdr_color.greyscale import sample
         from vhdr_color.model import ModeState
-        from vhdr_color.patterns import gamma_reference_nits, gamma_target_nits
-        for white in (80,100,240):
-            context=replace(HDR,gamma_white_nits=white)
-            reference=gamma_reference_nits(context)
-            self.assertLessEqual(reference,white)
-            ratios=[]
-            for gamma in (1.6,2.2,3.0):
-                state=ModeState.neutral("HDR");state.gamma=gamma;state.sdr_gamma_correction="Auto (Recommended)"
+        for white in (80,240,480):
+            context=replace(HDR,sdr_white_nits=white)
+            frame=render(pattern_by_key("gamma-match"),400,900,context)
+            # These actual pixels enter DWM as linear scRGB, then PQ encoding,
+            # then the MHC2 adjustment. The reference averages physical output.
+            stripe=[pixel_at(frame,400,0,y)[0]*80 for y in (450,451)]
+            solid=pixel_at(frame,400,144,450)[0]*80
+            errors={}
+            for mode in ("Off","Auto (Recommended)"):
+                state=ModeState.neutral("HDR");state.sdr_gamma_correction=mode
                 lut=build_transform(state,True,white).red
-                output=lambda n:pq_eotf(sample(lut,pq_inverse_eotf(n)))
-                ratios.append(output(gamma_target_nits(context))/output(reference))
-            self.assertAlmostEqual(ratios[1], .5, delta=.002)
-            self.assertGreater(ratios[0],.5);self.assertLess(ratios[-1],.5)
-            self.assertGreater(ratios[0]-ratios[-1],.1)
+                def output(nits):return pq_eotf(sample(lut,pq_inverse_eotf(nits)))
+                reference=sum(output(n) for n in stripe)/2
+                errors[mode]=output(solid)/reference-1
+            with self.subTest(white=white):
+                self.assertLess(abs(errors["Auto (Recommended)"]),0.0015)
+                self.assertLess(errors["Off"],-0.014)
+                self.assertGreater(errors["Off"],-0.021)
 
 
-class BrowserGammaReferenceTests(unittest.TestCase):
-    def test_match_encodes_browser_half_output_signal_once(self):
-        from dataclasses import replace
-        from vhdr_color.patterns import gamma_target_nits, gamma_reference_nits
-        from vhdr_color.gamma_correction import srgb_inverse_eotf
-        for gamma in (1.0, 1.8, 2.2, 3.0):
-            for base in (HDR, PatternContext(is_hdr=False)): 
-                context=replace(base,gamma_view="match",reference_gamma=gamma)
-                encoded=gamma_target_nits(context)/gamma_reference_nits(context)
-                signal=srgb_inverse_eotf(encoded)
-                expected=(0.25**gamma+0.75**gamma)/2
-                self.assertAlmostEqual(signal,expected**(1/gamma),places=7)
-                self.assertAlmostEqual(signal**gamma,expected,places=7)
 
-    def test_reference_slider_changes_target_but_not_checkerboard(self):
-        from dataclasses import replace
-        frames=[render(pattern_by_key("gamma-match"),400,200,
-                       replace(HDR,gamma_view="match",reference_gamma=g)) for g in (1,2.2,3)]
-        backgrounds=[pixel_at(f,400,0,0) for f in frames]
-        targets=[pixel_at(f,400,200,70)[0] for f in frames]
-        self.assertEqual(backgrounds,[backgrounds[0]]*3)
-        self.assertEqual(targets,sorted(targets))
-        self.assertGreater(targets[-1]-targets[0],0.1)
-
-    def test_matching_reference_is_neutral_midgrey_and_averages_in_both_axes(self):
-        from dataclasses import replace
-        context=replace(HDR,gamma_view="match")
-        frame=render(pattern_by_key("gamma-match"),400,200,context)
-        pixels=[pixel_at(frame,400,x,y) for y in range(2) for x in range(2)]
-        for px in pixels:self.assertEqual(px[:3],(px[0],)*3)
-        self.assertEqual(pixels[0],pixels[3]);self.assertEqual(pixels[1],pixels[2])
-        self.assertGreater(min(px[0] for px in pixels),0)
-        self.assertLess(max(px[0] for px in pixels),context.encode(context.sdr_white_nits))
-        preview=render(pattern_by_key("gamma-match"),400,200,replace(context,gamma_average_preview=True))
-        self.assertAlmostEqual(pixel_at(preview,400,0,0)[0],sum(px[0] for px in pixels)/4,delta=.001)
-        self.assertEqual(pixel_at(preview,400,0,0),pixel_at(preview,400,1,0))
-
-    def test_custom_slider_moves_only_custom_row(self):
-        from dataclasses import replace
-        context=replace(HDR,gamma_view="rows")
-        a=render(pattern_by_key("gamma-match"),600,500,replace(context,reference_gamma=1.75))
-        b=render(pattern_by_key("gamma-match"),600,500,replace(context,reference_gamma=2.65))
-        self.assertEqual(a[:600*400*8],b[:600*400*8])
-        self.assertNotEqual(a[600*400*8:],b[600*400*8:])
-
-    def test_rows_have_correct_signals_and_identical_endpoints(self):
-        from dataclasses import replace
-        from vhdr_color.patterns import gamma_reference_nits
-        from vhdr_color.gamma_correction import srgb_inverse_eotf
-        context=replace(HDR,gamma_view="rows")
-        frame=render(pattern_by_key("gamma-match"),600,500,context)
-        white=context.encode(gamma_reference_nits(context))
-        for row,gamma in enumerate((1.8,2,2.2,2.4,2.2)):
-            for col in range(6):
-                value=pixel_at(frame,600,col*100+50,row*100+50)[0]/white
-                self.assertAlmostEqual(srgb_inverse_eotf(value)**gamma,col/5,delta=.001)
-
+class DiagnosticFramesTests(unittest.TestCase):
+    def test_fixed_diagnostics_render_valid_neutral_and_colour_frames(self):
+        from vhdr_color.patterns import DIAGNOSTIC_PATTERNS
+        for pattern in DIAGNOSTIC_PATTERNS:
+            for w,h in ((1,1),(17,5),(320,180)):
+                with self.subTest(pattern=pattern.key,size=(w,h)):
+                    frame=render(pattern,w,h,HDR)
+                    self.assertEqual(len(frame),w*h*8)
+                    self.assertTrue(all(math.isfinite(v) and v>=0 for v in channels(frame)))
 
 if __name__ == "__main__":
     unittest.main()

@@ -363,7 +363,8 @@ class ReadmeAccuracyTests(unittest.TestCase):
 
     def test_it_does_not_still_describe_itself_as_only_an_editor(self):
         """It measures luminance and writes it into profiles now."""
-        self.assertNotIn("lightweight Windows 11 HDR profile editor", self.text())
+        self.assertIn("Test Patterns", self.text())
+        self.assertIn("colorimeter", self.text())
 
     def test_it_no_longer_denies_doing_what_it_does(self):
         """The old text ruled out a colorimeter workflow; a meter driver is planned and

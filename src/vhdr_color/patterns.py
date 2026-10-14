@@ -11,9 +11,9 @@ to reference white and anything above it clips. :attr:`PatternContext.absolute` 
 which of the two happened, so the UI can label a reading as real nits or as a ratio
 rather than quietly implying precision it does not have.
 
-scRGB is linear light, which matters for more than encoding: the gamma-match pattern
-below relies on two interleaved lines averaging optically to their arithmetic mean, and
-that is only true in a linear signal.
+scRGB carries linear light. The gamma pattern decodes SDR sRGB signals into it once.
+Its reference averages black/white output optically after the active display transform;
+matching the raw scRGB arithmetic mean would bypass the response being evaluated.
 
 Rendering happens straight into a swapchain buffer sized in *device* pixels. That is not
 an incidental detail -- a display at 125% scaling would resample a one-pixel line drawn
@@ -48,10 +48,7 @@ class PatternContext:
     # shape disappears and the level where that happens is the reading. It also means a
     # meter can drive exactly the same pattern by stepping this value.
     probe_nits: float = 0.05
-    gamma_white_nits: float | None = None
-    gamma_view: str = "profile"
-    reference_gamma: float = 2.2
-    gamma_average_preview: bool = False
+    gamma_target: float = 2.2  # Pattern goal only; never a profile control.
 
     @property
     def absolute(self) -> bool:
@@ -160,16 +157,8 @@ _NEAR_BLACK_LEVELS: tuple[float, ...] = (0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,
 # put the threshold well above where a panel actually runs out.
 SHAPE_CONTRAST = 1.08
 
-# Relative sizes of the candidate patches in the gamma-match pattern. The middle entry is
-# the true half-luminance, so it is the answer; the others exist so a miss reads as a
-# direction rather than merely a failure.
-GAMMA_CANDIDATES: tuple[tuple[float, str], ...] = (
-    (0.70, "much darker"),
-    (0.85, "darker"),
-    (1.00, "TARGET"),
-    (1.18, "brighter"),
-    (1.40, "much brighter"),
-)
+# Optical reference endpoints in desktop sRGB signal space.
+GAMMA_REFERENCE_SIGNALS = (0.0, 1.0)
 
 
 def _disc_spans(width: int, height: int, diameter_fraction: float):
@@ -236,95 +225,60 @@ def _render_peak_clip(width: int, height: int, context: PatternContext) -> bytes
 
 
 def gamma_reference_nits(context: PatternContext) -> float:
-    if context.gamma_view != "profile":
-        return min(context.ceiling_nits, context.sdr_white_nits)
-    reference = min(context.ceiling_nits, REFERENCE_WHITE_NITS)
-    white = context.gamma_white_nits
-    if white is not None and math.isfinite(white) and white > 0:
-        reference = min(reference, white)
-    return reference
+    """Use desktop white regardless of the correction option or profile sliders."""
+    return context.sdr_white_nits
 
 
-def gamma_target_nits(context: PatternContext) -> float:
-    reference = gamma_reference_nits(context)
-    if context.gamma_view != "profile":
-        # Browser RGB is nonlinear sRGB; scRGB must contain its decoded signal.
-        return reference * _srgb_to_linear(
-            ((0.25 ** context.reference_gamma + 0.75 ** context.reference_gamma) / 2.0) ** (1.0 / context.reference_gamma)
-            if context.gamma_view == "match" else 0.5 ** (1.0 / context.reference_gamma))
-    white = context.gamma_white_nits
-    if white is None or not math.isfinite(white) or white <= 0:
-        return reference / 2.0
-    # A fixed neutral 2.2 target, not the slider's current value. The active SDR
-    # correction reinterprets sRGB signal through a power curve. Encode the
-    # neutral half-output back into its input so 2.2 matches on an ideal panel.
-    signal = srgb_inverse_eotf(reference / white) * 0.5 ** (1.0 / 2.2)
-    return white * _srgb_to_linear(signal)
+def gamma_target_nits(context: PatternContext, gamma: float | None = None) -> float:
+    """Encode the selected SDR power-law target through piecewise sRGB exactly once.
+
+    A 50% black/white reference requires signal 0.5**(1/gamma), not
+    linear scRGB 0.5. The active display profile is applied later by Windows.
+    """
+    gamma = gamma_goal(context) if gamma is None else gamma
+    low, high = GAMMA_REFERENCE_SIGNALS
+    signal = ((low ** gamma + high ** gamma) / 2.0) ** (1.0 / gamma)
+    return gamma_reference_nits(context) * _srgb_to_linear(signal)
+
+
+def gamma_goal(context: PatternContext) -> float:
+    value = float(context.gamma_target)
+    return max(1.6, min(3.0, value)) if math.isfinite(value) else 2.2
 
 
 def _render_gamma_match(width: int, height: int, context: PatternContext) -> bytes:
-    """Interleaved lines beside solid patches: the honest way to read actual gamma.
+    """Nine feathered dots on horizontal native-pixel stripes, like classic DCCW.
 
-    Alternating full and black device-pixel lines average optically to half the line
-    luminance, and because scRGB is linear that average is exactly arithmetic. Whichever
-    solid patch blends into the surrounding lines identifies the luminance the display is
-    really producing for that signal, which is a measurement of the transfer function
-    rather than an impression of it.
-
-    The lines must land on real device pixels. Any resampling averages them together and
-    the pattern then reports a gamma that was never on screen.
+    Feathering replaces complete black/white row pairs with solid target pixels.
+    This spatial mixture preserves optical matching through a nonlinear display
+    transform; interpolating source grey values would introduce a false halo.
     """
-    if context.gamma_view == "rows":
-        return _render_gamma_rows(width, height, context)
-    line_nits = gamma_reference_nits(context)
-    if context.gamma_view == "match":
-        high = line_nits * _srgb_to_linear(0.75)
-        low = line_nits * _srgb_to_linear(0.25)
-    else:
-        high, low = line_nits, 0.0
-    lit_pixel, dark_pixel = _pixel(context.encode(high)), _pixel(context.encode(low))
-    # A one-device-pixel checkerboard averages in both directions. Horizontal
-    # lines alone are more sensitive to viewing direction and panel row inversion.
-    lit = (lit_pixel + dark_pixel) * (width // 2) + (lit_pixel if width % 2 else b"")
-    dark = (dark_pixel + lit_pixel) * (width // 2) + (dark_pixel if width % 2 else b"")
-
-    # Candidate patches bracket the true half-luminance so a mismatch reads as a
-    # direction, not just a failure to match.
-    ideal = gamma_target_nits(context)
-    candidates = ([ideal] if context.gamma_view == "match" else
-                  [ideal * factor for factor, _label in GAMMA_CANDIDATES])
-    patch_width = max(1, width // 4)
-    band = max(1, height // (len(candidates) + 1))
-
-    rows: list[bytes] = []
+    white = _pixel(context.encode(gamma_reference_nits(context)))
+    black = _pixel(0.0)
+    solid = _pixel(context.encode(gamma_target_nits(context)))
+    comparison_width = max(1, round(width * 0.72))
+    side = min(comparison_width, height)
+    cell = side / 3
+    left, top = (comparison_width-side)/2, (height-side)/2
+    centres = [(left+cell*(column+0.5), top+cell*(row+0.5))
+               for row in range(3) for column in range(3)]
+    core, outer = max(1.0,cell*0.08), max(1.5,cell*0.36)
+    bayer = ((0,8,2,10),(12,4,14,6),(3,11,1,9),(15,7,13,5))
+    rows=[]
     for y in range(height):
-        index = (y - band // 2) // band
-        base = lit if y % 2 == 0 else dark
-        if context.gamma_view == "match" and context.gamma_average_preview:
-            # Linear average is a preview only: it removes the spatial reference
-            # needed to measure a display's nonlinear transfer function.
-            base = _pixel(context.encode((high + low) / 2.0)) * width
-        if 0 <= index < len(candidates) and (y - band // 2) % band < band * 2 // 3:
-            left = (width - patch_width) // 2
-            patch = _pixel(context.encode(candidates[index])) * patch_width
-            rows.append(base[: left * 8] + patch + base[(left + patch_width) * 8:])
-        else:
-            rows.append(base)
-    return b"".join(rows)
-
-
-def _render_gamma_rows(width: int, height: int, context: PatternContext) -> bytes:
-    """Original RGB-power reference rows, decoded once for the linear swapchain."""
-    rows = []
-    white = gamma_reference_nits(context)
-    gammas = (1.8, 2.0, 2.2, 2.4, context.reference_gamma)
-    for y in range(height):
-        gamma = gammas[min(4, y * 5 // height)]
-        spans = _spans(width, 6)
-        row = b"".join(_pixel(context.encode(white * _srgb_to_linear(
-            (index / max(1, len(spans) - 1)) ** (1.0 / gamma)))) * span
-            for index, span in enumerate(spans))
-        rows.append(row)
+        row = bytearray((white if y%2==0 else black)*comparison_width + black*(width-comparison_width))
+        pair_y = (y//2)*2+1
+        for cx,cy in centres:
+            dy = pair_y-cy
+            if abs(dy)>=outer: continue
+            half=math.sqrt(outer*outer-dy*dy)
+            for x in range(max(0,math.ceil(cx-half)),min(comparison_width,math.floor(cx+half)+1)):
+                radius=math.hypot(x+0.5-cx,dy)
+                t=max(0.0,min(1.0,(outer-radius)/(outer-core)))
+                coverage=t*t*(3-2*t)
+                if coverage>(bayer[(y//2)%4][x%4]+0.5)/16:
+                    row[x*8:(x+1)*8]=solid
+        rows.append(bytes(row))
     return b"".join(rows)
 
 
@@ -376,76 +330,6 @@ def _render_neutral_ramp(width: int, height: int, context: PatternContext) -> by
     return row * height
 
 
-# How far above its own background each tracking patch sits, in PQ code.
-#
-# This has to sit near the threshold of visibility to be worth anything. What the eye sees
-# is the transfer function's slope at that level -- the difference is roughly f'(c) times
-# this step -- so the patch reports how steep the curve is where it sits. A step well above
-# threshold produces an obvious block, and an obvious block stays obvious when the curve
-# moves, which makes the pattern useless for judging a change. The first version used 0.03,
-# roughly thirty times threshold, and patches 1.3x to 2.35x brighter than their surround:
-# unmistakable, and almost completely insensitive to the controls it exists to set.
-#
-# One just-noticeable step is about one to two ten-bit PQ codes. Four is faint but findable,
-# and near enough to threshold that a change in slope pushes a patch in or out of sight.
-TONE_TRACKING_DELTA_PQ = 0.004
-
-TONE_TRACKING_CELLS = 7
-
-
-def tone_tracking_levels(context: PatternContext) -> tuple[float, ...]:
-    """The background levels the tracking test walks through, dark to bright."""
-    top = pq_inverse_eotf(context.ceiling_nits)
-    count = max(1, TONE_TRACKING_CELLS - 1)
-    # Kept off both ends: a patch at the very bottom has nothing to sit below it, and one
-    # at the top would clip against the ceiling and read as a tracking error.
-    return tuple(
-        pq_eotf(top * (0.10 + 0.80 * (index / count))) for index in range(TONE_TRACKING_CELLS)
-    )
-
-
-def _render_tone_tracking(width: int, height: int, context: PatternContext) -> bytes:
-    """One level at a time: a faint patch on a field, for setting the tone controls.
-
-    Gamma, Midtone Brightness and Contrast all shape the same curve, and by eye none has
-    an absolute reference to judge against. What the eye can do is say whether a patch is
-    visible, and the patch sits a near-threshold step above its background, so what it
-    reports is the steepness of the transfer function at that level.
-
-    Showing every level at once does not work, and the first version did. Adaptation is
-    set by the brightest thing in view, so a 536-nit field in the corner of the eye makes
-    a 0.16-nit patch unjudgeable no matter what the display is doing -- the reading is
-    then about the viewer, not the panel. One field at a time, stepped through, lets the
-    eye settle at each level.
-    """
-    field = context.probe_nits
-    patch = pq_eotf(min(1.0, pq_inverse_eotf(field) + TONE_TRACKING_DELTA_PQ))
-    background = _row(width, context.encode(field))
-
-    # A bar rather than a disc: an edge is easier to catch at threshold than a curve.
-    top = height // 3
-    bottom = height - top
-    left = width // 3
-    span = max(1, width - left * 2)
-    lit = (
-        background[: left * 8]
-        + _pixel(context.encode(patch)) * span
-        + background[(left + span) * 8:]
-    )
-    return b"".join(lit if top <= y < bottom else background for y in range(height))
-
-
-def _tone_tracking_markers(context: PatternContext) -> tuple[Marker, ...]:
-    levels = tone_tracking_levels(context)
-    closest = min(range(len(levels)), key=lambda i: abs(levels[i] - context.probe_nits))
-    reading = (f"{context.probe_nits:.3g} nits" if context.absolute
-               else f"{context.probe_nits / max(1.0, context.ceiling_nits):.3f}")
-    return (
-        Marker(text=f"level {closest + 1} of {len(levels)}", x=0.5, y=0.12, target=True),
-        Marker(text=reading, x=0.5, y=0.92),
-    )
-
-
 def _render_solid_patch(width: int, height: int, context: PatternContext) -> bytes:
     """A single flat level filling the window: the patch a meter reads."""
     return _row(width, context.encode(context.probe_nits)) * height
@@ -455,24 +339,11 @@ def _render_solid_patch(width: int, height: int, context: PatternContext) -> byt
 # Markers. Positions are fractions of the window, so they follow it at any size.
 
 
-def _gamma_markers(_context: PatternContext) -> tuple[Marker, ...]:
-    """Name every candidate patch, and say plainly which one is the answer."""
-    if _context.gamma_view == "rows":
-        return tuple(Marker(f"Gamma {gamma:g}" if index < 4 else f"CUSTOM {gamma:.3f}", 0.5, (index + 0.5) / 5)
-                     for index, gamma in enumerate((1.8, 2.0, 2.2, 2.4, _context.reference_gamma)))
-    if _context.gamma_view == "match":
-        return (Marker("TARGET", 0.80, 0.25 + 0.5 * 0.33, target=True),)
-    count = len(GAMMA_CANDIDATES)
-    band = 1.0 / (count + 1)
-    return tuple(
-        Marker(
-            text=label,
-            x=0.80,
-            y=band * 0.5 + index * band + band * 0.33,
-            target=(label == "TARGET"),
-        )
-        for index, (_factor, label) in enumerate(GAMMA_CANDIDATES)
-    )
+def _gamma_markers(context: PatternContext) -> tuple[Marker, ...]:
+    goal=gamma_goal(context)
+    role="SDR desktop" if abs(goal-2.2)<0.0005 else ("SDR video" if abs(goal-2.4)<0.0005 else ("DCI cinema" if abs(goal-2.6)<0.0005 else "Custom SDR goal"))
+    return (Marker(f"{goal:.3f} SDR TARGET",0.85,0.45,target=True),
+            Marker(role,0.85,0.55))
 
 
 def _near_black_markers(context: PatternContext) -> tuple[Marker, ...]:
@@ -538,21 +409,63 @@ def _render_colour_patches(width: int, height: int, context: PatternContext) -> 
     return b"".join(bands)
 
 
+def _render_highlight_steps(width: int,height: int,context: PatternContext) -> bytes:
+    spans=_spans(width,12)
+    row=b"".join(_pixel(context.encode(context.ceiling_nits*(.75+.25*i/max(1,len(spans)-1))))*span
+                 for i,span in enumerate(spans))
+    return row*height
+
+
+def _render_uniformity(width: int,height: int,context: PatternContext) -> bytes:
+    return _row(width,context.encode(context.sdr_white_nits*_srgb_to_linear(.5)))*height
+
+
+def _render_sharpness(width: int,height: int,context: PatternContext) -> bytes:
+    white=_pixel(context.encode(context.sdr_white_nits));black=_pixel(0)
+    rows=[]
+    for y in range(height):
+        row=[]
+        for x in range(width):
+            lit=(x%2==0) if x<width//3 else ((y%2==0) if x<width*2//3 else ((x+y)%2==0))
+            row.append(white if lit else black)
+        rows.append(b"".join(row))
+    return b"".join(rows)
+
+
+def _render_colour_gradients(width: int,height: int,context: PatternContext) -> bytes:
+    rows=[]
+    for channel,span in enumerate(_spans(height,3)):
+        row=[]
+        for x in range(width):
+            value=context.encode(context.sdr_white_nits*_srgb_to_linear(x/max(1,width-1)))
+            rgb=[0.0,0.0,0.0];rgb[channel]=value
+            row.append(_colour_pixel(*rgb))
+        rows.append(b"".join(row)*span)
+    return b"".join(rows)
+
+
+def _render_pixel_fields(width: int,height: int,context: PatternContext) -> bytes:
+    white=context.encode(context.sdr_white_nits)
+    colours=((0,0,0),(white,0,0),(0,white,0),(0,0,white),(white,white,white))
+    row=b"".join(_colour_pixel(*colour)*span for colour,span in zip(colours,_spans(width,5)))
+    return row*height
+
+
 PATTERNS: tuple[Pattern, ...] = (
     Pattern(
         key="gamma-match",
         title="Gamma match",
-        purpose="Reads the transfer function the display is actually producing.",
-        criterion="The patch labelled TARGET is the one that vanishes into the lines.",
+        purpose="Checks effective SDR desktop gamma against a selected goal.",
+        criterion="Minimize the nine centre dots against the blended horizontal stripes.",
         instructions=(
-            "View from a distance until the fine checkerboard blends into grey. "
-            "In PROFILE adjustment, the fixed TARGET must match that grey. "
-            "Left lowers Gamma and brightens TARGET; Right raises Gamma and darkens it. "
+            "Use native resolution. Move back or slightly defocus until the horizontal stripes blend. "
+            "Adjust the profile Gamma to minimize the dots, as in classic Windows calibration.\n\n"
+            "Up/Down changes the pattern target (1.600-3.000, step 0.1); Home restores 2.200. "
+            "This does not change the profile. Left/Right adjusts the selected profile control; "
             "Tab selects Gamma, Midtone Brightness or Contrast. Wait for Live profile applied.\n\n"
-            "G switches to REFERENCE match: its separate readout moves only the pattern "
-            "to measure gamma, like a browser test. G again shows reference rows, then "
-            "returns to PROFILE adjustment. If a fixed target cannot match, use the "
-            "reference views or skip; do not mistake a pattern readout for a profile correction."
+            "Choose correction mode first. Start with neutral brightness/contrast; recheck after edits. "
+            "2.2: SDR desktop. 2.4: dim-viewing SDR video. 2.6: DCI cinema. "
+            "HDR uses PQ (HDR10) or HLG. The profile slider is neutral at 2.200, not measured gamma."
         ),
         render=_render_gamma_match,
         markers=_gamma_markers,
@@ -605,31 +518,6 @@ PATTERNS: tuple[Pattern, ...] = (
         markers=_probe_markers,
         level_driven=True,
         window_fraction=1.0,
-    ),
-    Pattern(
-        key="tone-tracking",
-        title="Tone tracking",
-        purpose="Identifies which tone control is misadjusted, at normal viewing distance.",
-        criterion="The bar only just visible, at this level and at every other.",
-        instructions=(
-            "A faint bar crosses the middle of the patch. Levels are shown one at a time, "
-            "because a bright area anywhere on screen prevents a dark one from being "
-            "judged.\n\n"
-            "1. Assess the bar here: too faint to find, about right, or obvious.\n"
-            "2. Up and Down move between levels. Allow a few seconds at each.\n"
-            "3. Cover all seven, then compare the result against the table below.\n"
-            "4. Tab selects a control, Left and Right adjust it. Repeat the sweep.\n\n"
-            "too faint at the DARK levels only    -> raise Midtone Brightness\n"
-            "too faint at the BRIGHT levels only  -> lower Midtone Brightness\n"
-            "too faint at BOTH ends               -> lower Contrast\n"
-            "too obvious at BOTH ends             -> raise Contrast\n"
-            "wrong by the same amount EVERYWHERE  -> adjust Gamma\n\n"
-            "Only the overall pattern is meaningful. No single level indicates anything on "
-            "its own. Adjust one control at a time."
-        ),
-        render=_render_tone_tracking,
-        markers=_tone_tracking_markers,
-        levels=tone_tracking_levels,
     ),
     Pattern(
         key="grey-staircase",
@@ -711,8 +599,32 @@ MEASUREMENT_SEQUENCE: tuple[str, ...] = ("black-level", "peak-white", "full-fram
 GUIDED_SEQUENCE: tuple[str, ...] = MEASUREMENT_SEQUENCE + ("gamma-match",)
 
 
+# Separate catalog: only fixed diagnostic frames, never guided calibration targets.
+DIAGNOSTIC_PATTERNS: tuple[Pattern,...] = tuple(
+    Pattern(p.key,p.title,p.purpose,p.criterion,
+            "Inspect the displayed result. This view changes no settings. " + (
+                "Merged steps indicate crushing or clipping." if p.key=="grey-staircase" else
+                "Look for lost shadow detail." if p.key=="near-black" else
+                "Look for tint shifts and banding." if p.key=="neutral-ramp" else
+                "Inspect hue and saturation; there is no visual absolute colour reference."),
+            p.render,p.markers,records=False)
+    for p in PATTERNS if p.key in ("grey-staircase","near-black","neutral-ramp","colour-patches")
+) + (
+    Pattern("highlight-steps","Highlight separation","Reviews detail near the reported peak.",
+            "Adjacent bright steps remain distinguishable.","Fixed nominal HDR levels; merged steps can indicate tone mapping or clipping.",_render_highlight_steps,records=False),
+    Pattern("uniformity","Grey uniformity","Reviews full-screen luminance and tint uniformity.",
+            "The field has no obvious bright patches or colour shifts.","Inspect from a normal viewing distance. The field stays at a fixed mid-grey level.",_render_uniformity,records=False,window_fraction=1.0),
+    Pattern("sharpness","Pixel sharpness","Checks native-pixel detail without scaling.",
+            "Fine lines and the checkerboard remain regular.","Use native display resolution. Moire, blur or halos can indicate scaling or sharpening.",_render_sharpness,records=False),
+    Pattern("colour-gradients","RGB gradients","Reviews channel banding and colour transitions.",
+            "Each gradient remains smooth.","Inspect the fixed red, green and blue ramps for banding or abrupt transitions.",_render_colour_gradients,records=False),
+    Pattern("pixel-fields","RGB pixel fields","Inspects black, primary-colour and white regions.",
+            "No isolated unexpected pixels are visible.","These fixed regions can reveal pixel or channel defects; they are not a complete full-screen dead-pixel test.",_render_pixel_fields,records=False),
+)
+
+
 def pattern_by_key(key: str) -> Pattern | None:
-    for pattern in PATTERNS:
+    for pattern in PATTERNS + DIAGNOSTIC_PATTERNS:
         if pattern.key == key:
             return pattern
     return None
@@ -739,15 +651,10 @@ def render(pattern: Pattern, width: int, height: int, context: PatternContext) -
 # to overfill a meter's aperture at a normal working distance.
 WINDOW_AREA_FRACTION = 0.10
 
-# The overlay is held far below diffuse white. It shares the screen with the patch, so its
-# light counts towards what the panel is being asked to produce, and a bright strip of text
-# beside a near-black patch would both engage the limiter and destroy dark adaptation.
-OVERLAY_NITS = 12.0
-
-# Markers sit on the patch itself, so they are dimmer again than the edge strip. A bright
-# label beside a near-black shape raises local adaptation and moves the very threshold the
-# pattern exists to find.
-MARKER_NITS = 4.0
+# Readable UI luminance, separate from the calibration patch's own levels.
+OVERLAY_NITS = 80.0
+# In-pattern labels remain a little dimmer than the edge controls.
+MARKER_NITS = 48.0
 
 
 def window_size(width: int, height: int, fraction: float = WINDOW_AREA_FRACTION) -> tuple[int, int]:

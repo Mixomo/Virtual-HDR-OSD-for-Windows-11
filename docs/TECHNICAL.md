@@ -29,27 +29,18 @@ as a fresh hardware measurement would create a feedback loop.
 
 ## Tone and colour
 
-The Gamma control first converts luminance to the desktop's piecewise sRGB signal.
-The gamma calculation happens there, rather than directly on PQ codes.
-
-With SDR-in-HDR correction **Off**:
+Tone processing follows below order in both working profiles:
 
 ```text
-PQ luminance -> piecewise sRGB signal -> relative Gamma / 2.200
--> piecewise sRGB decode -> PQ -> Contrast -> Midtone Brightness -> tone LUT
+PQ -> optional fixed piecewise-sRGB-to-gamma-2.2 correction
+-> independent PQ power (Gamma / 2.200) -> Contrast -> Midtone Brightness -> tone LUT
 ```
 
-With correction **On**:
-
-```text
-PQ luminance -> piecewise sRGB signal -> Contrast -> Midtone Brightness
--> absolute target Gamma -> PQ -> tone LUT
-```
-
-Gamma is anchored to the Windows SDR reference white. Off at Gamma 2.200 is identity
-when the other tone controls are neutral. Gamma alone preserves SDR white and the
-range above it. With correction Off, Brightness and Contrast retain their whole-PQ
-behaviour; with correction On, these controls stay in the SDR range.
+The correction itself is identity above SDR reference white. Gamma, Brightness and
+Contrast follow it and act on the whole PQ range in both Off and On profiles.
+Gamma 2.200 is a neutral adjustment, not a measurement of the resulting desktop
+gamma. Brightness uses the same endpoint-preserving lift in both profiles:
+`y + (trim / 100) * y * (1 - y)`, with the trim bounded to +/-35%.
 
 Measured greyscale correction is combined with the per-channel tone curves. Each run
 records the tone settings in use to account for existing correction on a later pass.
@@ -75,18 +66,82 @@ Most visual patterns use a fixed window on black. Full-frame white fills the scr
 because it tests a different operating condition. A visual disappearance threshold
 is a clipping estimate, not a photometric reading of the panel's output.
 
-The gamma reference alternates sRGB 25% and 75% grey signals in a device-pixel
-checkerboard. Values are decoded once for linear scRGB. For reference gamma `g`,
+The gamma reference alternates sRGB black (0) and desktop white (1) in one-device-pixel
+horizontal stripes with equal area. Values are decoded once for linear scRGB. For reference gamma `g`,
 the target signal is:
 
 ```text
-((0.25^g + 0.75^g) / 2)^(1/g)
+0.5^(1/g)
 ```
 
-The custom readout changes this target independently of the profile's Gamma control.
-Its result includes Windows SDR presentation and the active profile; it is not a
-measurement of the PQ transfer function. The smooth average preview removes the
-optical reference and is not used to measure gamma.
+Nine circular targets use a selected gamma goal from 1.6 to 3.0, initially 2.2.
+Up/Down adjusts that goal in 0.1 steps; its independent draggable slider snaps
+to the same tenths. Home resets it. This lives in the pattern
+context and never changes a profile parameter or follows the actual Gamma slider.
+The result includes Windows SDR presentation and the active profile; it is not a
+measurement of the PQ transfer function.
+
+The circular feather uses an ordered spatial mixture of solid target pixels and
+complete black/white horizontal row pairs. Both rows in each pair share a coverage
+mask, so a nonlinear profile still leaves the local optical average correct at the
+selected goal. Interpolating grey signal values at the edges would instead create
+a false halo. The design recreates the classic Windows calibrator's visual principle
+without copying its resources.
+
+The 2.2 target is the SDR desktop reference. The 2.4 label refers to the exponent
+used by SDR video reference monitoring (BT.1886); this chart does not implement
+BT.1886's nonzero-black compensation. The 2.6 label is a DCI cinema gamma reference,
+not a complete cinema calibration. HDR television uses PQ or HLG under BT.2100,
+and HDR10 uses PQ/ST 2084. Neither reference should be labelled an HDR gamma target.
+
+### Why piecewise decoding is required
+
+For a solid SDR signal `s`, the HDR surface contains `sRGB_EOTF(s) * SDR_white / 80`.
+This follows Microsoft's linear scRGB reference-white mapping. The reference is not
+silently clamped to the reported peak: doing so would test a different white level
+from the desktop and from the Auto correction. If SDR white exceeds reported peak,
+the pattern warns that clipping or tone mapping can invalidate the match. A 2.2 target uses
+signal `0.5^(1/2.2)` (about 0.72974), which decodes to about 0.49151 of reference
+white before display calibration. It must not be sent as linear 0.5: that would
+already bake the intended match into the source. Nor should the SDR-to-2.2 fix be
+applied while rendering; Windows applies the selected MHC2 adjustment afterwards.
+
+With an ideal PQ display and neutral controls, correction On converts the solid
+2.2 target to 0.5 of white, matching the optical average of black and white. With
+correction Off, the slight piecewise-sRGB/pure-2.2 difference remains visible.
+Real panel processing, black level and spatial response can change that result;
+this is an effective visual estimate, not a complete gamma measurement.
+
+The construction follows the optical matching principle described by
+[EIZO](https://www.eizo.com/library/basics/lcd_display_gamma/) and uses
+[Microsoft's SDR/scRGB mapping](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/high-dynamic-range).
+EIZO's online test source uses a two-pixel black/white tile and a solid gamma-2.2
+signal of 186/255; this implementation computes its own floating-point references.
+These sources establish the underlying method, not a formal standard specifically
+for visual SDR calibration inside Windows HDR. No upstream images or code are bundled.
+
+### Guided luminance values
+
+The guide writes black to `minimum_luminance_nits`, central white to
+`peak_luminance_nits` (MHC2) and full-frame white to `full_frame_luminance_nits`
+(`lumi`). Manual white thresholds use the 0-10,000-nit signal range and are stored
+independently: neither the panel declaration nor the other white step caps them.
+State reload, ICC export/import and manual GUI edits preserve those values.
+A full-frame disappearance threshold describes clipping, not measured sustained
+panel output. EDID defaults and instrument measurements remain separate sources.
+
+The introduction and both white warnings render on black before the pattern.
+Enter opens the warned pattern; N skips it while keeping the existing value.
+Auto-repeated Enter is ignored on warning screens. Pattern UI uses 80-nit text and
+controls, 48-nit markers and 120-nit introduction/warning/results text.
+
+### Read-only pattern diagnostics
+
+Diagnostic and guided catalogs are separate. The diagnostic window discards edit,
+measurement and apply callbacks, blocks mutation APIs and accepts only navigation,
+information-panel placement and closing. Its overlay exposes no tracks or edit keys.
+Live Apply is stopped while viewing diagnostics; SDR-white updates refresh the
+frame without queuing a profile write. Existing calibration remains active.
 
 ## Instrument measurements
 
@@ -213,3 +268,7 @@ resources; distributed copies must remain synchronized.
 - [Windows MHC2 calibration pipeline](https://learn.microsoft.com/en-us/windows/win32/wcs/display-calibration-mhc)
 - [SDR-in-HDR gamma reference](https://github.com/dylanraga/win11hdr-srgb-to-gamma2.2-icm)
 - [EIZO monitor test](https://www.eizo.be/monitor-test/) and [Display Test gamma](https://display-test.app/test/gamma): signal references for original patterns, not bundled code or artwork.
+
+- [ITU-R BT.1886: SDR reference EOTF](https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.1886-0-201103-I!!PDF-E.pdf)
+- [ITU-R BT.2100-3: HDR PQ and HLG](https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2100-3-202502-I!!PDF-E.pdf)
+- [DCI: conventional gamma 2.6 and ST 2084](https://www.dcimovies.com/assets/DCI-Memo-On-Direct-View-Displays_2108-0627.CkDNqB-O.pdf)

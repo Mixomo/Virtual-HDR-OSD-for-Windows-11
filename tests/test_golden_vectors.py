@@ -207,7 +207,7 @@ class GeneratedProfileTests(unittest.TestCase):
 
     def test_an_adjusted_profile(self):
         self.assertEqual(
-            "83117dc95f1b8dc4cbea8ca005a5b6a7fe3b03c1bea6aee314d7f57862d79f79",
+            "2bcd256c1a067a7d3e9035b5e941fb4d98e74cf062a634349e1bff6635d0cdc9",
             self.digest(gamma=2.4, contrast=10.0, temperature=500.0, red_channel=-5.0,
                         peak_luminance_nits=950.0, minimum_luminance_nits=0.05,
                         sdr_gamma_correction="200 nits / Brightness 30"),

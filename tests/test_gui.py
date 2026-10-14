@@ -514,8 +514,8 @@ class EditorStructureTests(WindowTestCase):
             # 0.01, matching the two decimals shown. set_value quantises to the
             # declared step, so a whole-nit step silently snapped every typed value to
             # an integer -- this panel declares 1015.24 and the field would take 1015.
-            "peak_luminance_nits": (80.0, 10000.0, 1000.0, 0.01),
-            "full_frame_luminance_nits": (80.0, 10000.0, 400.0, 0.01),
+            "peak_luminance_nits": (0.0, 10000.0, 1000.0, 0.01),
+            "full_frame_luminance_nits": (0.0, 10000.0, 400.0, 0.01),
             "minimum_luminance_nits": (0.0, 100.0, 0.0, 0.0001),
         }
         for key, (low, high, default, step) in expected.items():
@@ -1883,10 +1883,10 @@ class MeasurementRecordingTests(WindowTestCase):
         self.window._record_measurement("peak-white", 99999.0)
         self.assertLessEqual(self.window.state.hdr.peak_luminance_nits, 10000.0)
 
-    def test_full_frame_above_peak_is_refused_without_overwriting_previous_value(self):
+    def test_full_frame_threshold_is_not_limited_by_central_peak(self):
         before = self.window.state.hdr.full_frame_luminance_nits
         self.window._record_measurement("full-frame-white", 4000.0)
-        self.assertAlmostEqual(self.window.state.hdr.full_frame_luminance_nits, before)
+        self.assertAlmostEqual(self.window.state.hdr.full_frame_luminance_nits, 4000.0)
 
     def test_a_measurement_reaches_the_generated_profile(self):
         """The point of measuring: MHC2 carries min and peak, lumi carries full frame."""
@@ -2882,12 +2882,13 @@ class ClampedMeasurementTests(WindowTestCase):
     different number than the user measured, without saying so, is the one thing a
     measurement step must never do."""
 
-    def test_a_reading_below_the_floor_is_reported(self):
+    def test_low_manual_peak_is_preserved_without_an_80_nit_floor(self):
         """60 nits peak is plausible on a dim panel and became 80 in silence."""
         self.window._record_measurement("peak-white", 60.0)
         text = self.window.status_label.text()
         self.assertIn("60", text)
-        self.assertIn("80", text)
+        self.assertEqual(self.window.state.hdr.peak_luminance_nits,60)
+        self.assertNotIn("outside the range",text)
 
     def test_a_reading_above_the_ceiling_is_reported(self):
         self.window._record_measurement("peak-white", 50000.0)
@@ -4092,46 +4093,28 @@ class LuminanceControlTests(WindowTestCase):
         self.widget("minimum_luminance_nits").set_value(0.0002, emit=True)
         self.assertAlmostEqual(0.0002, self.window.state.hdr.minimum_luminance_nits, places=6)
 
-    def test_lowering_peak_takes_sustained_with_it(self):
-        """Sustained above peak is fiction, and ModeState.from_dict silently clamps it
-        on the next load -- so leaving them disagreeing shows one thing in the editor
-        and writes another into the profile."""
-        self.widget("peak_luminance_nits").set_value(1000.0, emit=True)
-        self.widget("full_frame_luminance_nits").set_value(600.0, emit=True)
-        self.widget("peak_luminance_nits").set_value(400.0, emit=True)
+    def test_lowering_manual_peak_keeps_full_frame_value(self):
+        self.widget("peak_luminance_nits").set_value(1000,emit=True)
+        self.widget("full_frame_luminance_nits").set_value(600,emit=True)
+        self.widget("peak_luminance_nits").set_value(400,emit=True)
+        self.assertEqual(self.window.state.hdr.peak_luminance_nits,400)
+        self.assertEqual(self.window.state.hdr.full_frame_luminance_nits,600)
+        self.assertEqual(self.widget("full_frame_luminance_nits").value(),600)
 
-        state = self.window.state.hdr
-        self.assertAlmostEqual(400.0, state.peak_luminance_nits, places=3)
-        self.assertAlmostEqual(400.0, state.full_frame_luminance_nits, places=3)
-        self.assertAlmostEqual(
-            400.0, self.widget("full_frame_luminance_nits").value(),
-            places=3,
-            msg="the state was reconciled but the widget still shows the old figure",
-        )
+    def test_raising_manual_full_frame_keeps_peak_value(self):
+        self.widget("peak_luminance_nits").set_value(500,emit=True)
+        self.widget("full_frame_luminance_nits").set_value(1086,emit=True)
+        self.assertEqual(self.window.state.hdr.full_frame_luminance_nits,1086)
+        self.assertEqual(self.window.state.hdr.peak_luminance_nits,500)
+        self.assertEqual(self.widget("peak_luminance_nits").value(),500)
 
-    def test_raising_sustained_past_peak_raises_peak(self):
-        """The other direction, because either is a reasonable thing to mean."""
-        self.widget("peak_luminance_nits").set_value(500.0, emit=True)
-        self.widget("full_frame_luminance_nits").set_value(900.0, emit=True)
-
-        state = self.window.state.hdr
-        self.assertAlmostEqual(900.0, state.full_frame_luminance_nits, places=3)
-        self.assertAlmostEqual(900.0, state.peak_luminance_nits, places=3)
-        self.assertAlmostEqual(900.0, self.widget("peak_luminance_nits").value(), places=3)
-
-    def test_reconciling_does_not_count_as_a_second_edit(self):
-        """The paired widget is updated with emit=False; a signal there would recurse
-        straight back into this handler."""
-        self.widget("peak_luminance_nits").set_value(1000.0, emit=True)
-        self.widget("full_frame_luminance_nits").set_value(600.0, emit=True)
-        before = self.window._edit_signature()
-        self.widget("peak_luminance_nits").set_value(400.0, emit=True)
-        self.assertNotEqual(before, self.window._edit_signature())
-        # And the state is self-consistent rather than mid-recursion.
-        self.assertLessEqual(
-            self.window.state.hdr.full_frame_luminance_nits,
-            self.window.state.hdr.peak_luminance_nits,
-        )
+    def test_manual_luminance_edit_does_not_rewrite_its_neighbour(self):
+        self.widget("peak_luminance_nits").set_value(1000,emit=True)
+        self.widget("full_frame_luminance_nits").set_value(600,emit=True)
+        before=self.window._edit_signature()
+        self.widget("peak_luminance_nits").set_value(400,emit=True)
+        self.assertNotEqual(before,self.window._edit_signature())
+        self.assertEqual(self.window.state.hdr.full_frame_luminance_nits,600)
 
     def test_a_calibration_still_overwrites_them(self):
         """They are editable, not authoritative: the panel and the meter both win."""
@@ -6480,7 +6463,7 @@ class DesktopGammaAnchorTests(WindowTestCase):
         self.assertIsNone(self.window._effective_sdr_white_nits())
         self.assertEqual(self.window.state.hdr.sdr_gamma_correction,"Off")
 
-    def test_working_pair_uses_desktop_white_for_off_and_preset_for_on(self):
+    def test_off_tone_does_not_need_white_and_on_uses_its_preset(self):
         self.window.state.hdr.gamma=2.8
         self.window.state.hdr.sdr_gamma_correction="Off"
         self.window._last_enabled_gamma_correction="100 nits / Brightness 5"
@@ -6488,7 +6471,23 @@ class DesktopGammaAnchorTests(WindowTestCase):
              mock.patch.object(app_module,"build_transform",wraps=app_module.build_transform) as build:
             payloads,_=self.window._build_working_payloads(self.display)
         self.assertEqual(set(payloads),{"Off","On"})
-        self.assertEqual([call.kwargs["sdr_white_nits"] for call in build.call_args_list],[320,100])
+        self.assertEqual([call.kwargs.get("sdr_white_nits") for call in build.call_args_list],[None,100])
+
+    def test_generated_profile_pair_keeps_plus10_brightness_in_both_variants(self):
+        from vhdr_color.icc import _read_tags, _parse_mhc2
+        from vhdr_color.gamma_correction import pq_inverse_eotf, pq_eotf
+        from vhdr_color.greyscale import sample
+        self.window.state.hdr.gamma = 2.2
+        self.window.state.hdr.brightness_trim = 10
+        self.window._last_enabled_gamma_correction = "200 nits / Brightness 30"
+        payloads, _ = self.window._build_working_payloads(self.display)
+        curves = [_parse_mhc2(_read_tags(payloads[mode][1])[b"MHC2"])[3]
+                  for mode in ("Off", "On")]
+        for nits in (250, 500, 1000, 4000):
+            off, on = (pq_eotf(sample(curve, pq_inverse_eotf(nits))) for curve in curves)
+            self.assertAlmostEqual(off, on, places=7)
+            self.assertGreater(on, nits)
+        self.assertEqual(self.window.state.hdr.brightness_trim, 10)
 
     def test_off_pattern_white_change_queues_apply_and_keeps_fix_disabled(self):
         self.window.state.hdr.sdr_gamma_correction="Off"
@@ -6498,7 +6497,6 @@ class DesktopGammaAnchorTests(WindowTestCase):
         self.window._pattern_last_white=240
         with mock.patch.object(app_module,"get_sdr_white_level_nits",return_value=320):
             self.assertEqual(self.window._pattern_desktop_white(),320)
-            self.assertIsNone(self.window._pattern_gamma_white())
         self.assertTrue(self.window.live_timer.isActive())
         self.assertEqual(self.window.state.hdr.sdr_gamma_correction,"Off")
         self.window.live_timer.stop();self.window._pattern_window=None
@@ -6512,6 +6510,75 @@ class FullFrameRecordingTests(WindowTestCase):
         self.assertEqual(self.window.state.hdr.full_frame_luminance_nits,value)
         self.assertEqual(self.window.state.hdr.peak_luminance_nits,peak)
 
+
+
+class IndependentWhiteThresholdTests(WindowTestCase):
+    def test_1086_survives_state_and_icc_roundtrip_with_lower_central_peak(self):
+        import struct
+        from vhdr_color.model import ModeState
+        from vhdr_color.curves import build_transform
+        from vhdr_color.icc import build_profile,import_profile,_read_tags
+        self.window.state.hdr.peak_luminance_nits=1000
+        self.window._record_measurement("full-frame-white",1086)
+        state=ModeState.from_dict(self.window.state.hdr.to_dict(),"HDR")
+        self.assertEqual(state.full_frame_luminance_nits,1086)
+        self.assertEqual(state.peak_luminance_nits,1000)
+        payload=build_profile("HDR",state,build_transform(state,True))
+        self.assertEqual(struct.unpack_from(">i",_read_tags(payload)[b"lumi"],12)[0]/65536,1086)
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/"threshold.icm";path.write_bytes(payload)
+            loaded=import_profile(path,"HDR")
+        self.assertEqual(loaded.state.full_frame_luminance_nits,1086)
+        self.assertEqual(loaded.state.peak_luminance_nits,1000)
+
+
+class DiagnosticApplicationTests(WindowTestCase):
+    def test_diagnostics_supply_no_mutating_callbacks_and_pause_live_apply(self):
+        self.window.state.live_mode=True
+        self.window.live_timer.start()
+        with mock.patch.object(app_module,"PatternWindow",wraps=PatternViewLiveApplyTests.FakeWindow) as factory:
+            self.window._open_pattern_view(guided=False)
+        self.assertEqual(factory.call_args.args[2],())
+        self.assertIsNone(factory.call_args.kwargs["measure"])
+        self.assertIsNone(factory.call_args.kwargs["apply"])
+        self.assertFalse(self.window.state.live_mode)
+        self.assertFalse(self.window.live_timer.isActive())
+        self.installed.clear()
+        # Even an unexpected re-enable cannot cause a live write during diagnostics.
+        self.window.state.live_mode=True;self.window._apply_live_edit()
+        self.assertEqual(self.installed,[])
+        PatternViewLiveApplyTests.last.close()
+        self.assertTrue(self.window.state.live_mode)
+        self.assertFalse(self.window.live_timer.isActive())
+
+    def test_diagnostics_can_inspect_restored_windows_profile_without_applying(self):
+        with mock.patch.object(self.window,"_is_restored",return_value=True), \
+             mock.patch.object(app_module,"PatternWindow",wraps=PatternViewLiveApplyTests.FakeWindow) as factory:
+            self.window._open_pattern_view(guided=False)
+        factory.assert_called_once()
+        self.assertIsNone(factory.call_args.kwargs["apply"])
+        PatternViewLiveApplyTests.last.close()
+
+    def test_autosave_keeps_live_apply_preference_while_diagnostics_pause_it(self):
+        self.window.state.live_mode=True
+        self.window._state_unopened=False
+        with mock.patch.object(app_module,"PatternWindow",PatternViewLiveApplyTests.FakeWindow):
+            self.window._open_pattern_view(guided=False)
+        with mock.patch.object(self.window,"_write_json_atomic",return_value=True) as write:
+            self.window._save_state_now()
+        self.assertTrue(write.call_args.args[1]["live_mode"])
+        self.assertFalse(self.window.state.live_mode)
+        PatternViewLiveApplyTests.last.close()
+
+    def test_sdr_white_changes_during_diagnostics_do_not_queue_profile_updates(self):
+        with mock.patch.object(app_module,"PatternWindow",PatternViewLiveApplyTests.FakeWindow):
+            self.window._open_pattern_view(guided=False)
+        with mock.patch.object(self.window,"_tone_reference_white_nits",return_value=320), \
+             mock.patch.object(self.window,"_queue_live_apply") as queued:
+            self.window._pattern_desktop_white()
+        queued.assert_not_called()
+        PatternViewLiveApplyTests.last.close()
 
 if __name__ == "__main__":
     unittest.main()

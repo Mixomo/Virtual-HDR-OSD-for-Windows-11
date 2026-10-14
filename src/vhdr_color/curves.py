@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from . import greyscale
 from .model import ModeState
-from .gamma_correction import resolve_white_level, transform_piecewise_srgb_to_gamma, transform_piecewise_srgb_gamma_adjustment
+from .gamma_correction import resolve_white_level, transform_piecewise_srgb_to_gamma22
 
 
 @dataclass(slots=True)
@@ -244,37 +244,14 @@ def _shape_curve(value: float, state: ModeState, hdr: bool, sdr_white_nits: floa
         # SDR is comparison-only; Virtual HDR OSD never modifies its profile path.
         return x
 
-    contrast = float(state.contrast)
-    # The wider UI range remains endpoint-preserving; fine steps make small trims easy.
-    brightness = max(-0.35, min(0.35, float(state.brightness_trim) / 100.0))
-
-    # Optional SDR-in-HDR correction follows dylanraga's documented direction.
+    # Keep the hotfix-3 order: optional fixed sRGB-to-2.2 correction, then
+    # the same independent tone controls for both Off and On working profiles.
     white_level = resolve_white_level(state.sdr_gamma_correction, sdr_white_nits)
     if white_level is not None:
-        # The slider sets the correction's *target* rather than applying a second power on
-        # top of it. Stacking the two is not equivalent and is not harmless: a power
-        # applied to PQ code afterwards lifts everything, including the highlights above
-        # diffuse white that the correction deliberately leaves at identity. At 2.0 that
-        # put diffuse white 32% high and 1000-nit highlights 20% high, so moving one
-        # slider silently rebrightened native HDR content the correction never touches.
-        #
-        # Contrast and Midtone Brightness fold in the same way and for the same reason.
-        # Applied to PQ code afterwards, +10 contrast lifted a 1000-nit highlight by 17%,
-        # so native HDR the correction leaves alone moved with every trim. Inside, they
-        # shape the SDR range the correction owns and identity above diffuse white holds
-        # at every setting. With the correction off they stay whole-range HDR controls,
-        # which is how the README documents them.
-        return clamp(transform_piecewise_srgb_to_gamma(
-            x, white_level, float(state.gamma),
-            shape=lambda signal: _brightness_lift(_contrast_curve(signal, contrast), brightness),
-        ))
-
-    # Off retains the Windows piecewise baseline. Gamma is a relative power on
-    # the recovered desktop signal, not on PQ codes or absolute HDR exposure.
-    # Contrast/brightness retain their existing independent whole-PQ behavior.
-    desktop_white = resolve_white_level("Auto (Recommended)", sdr_white_nits)
-    y = transform_piecewise_srgb_gamma_adjustment(x, desktop_white, float(state.gamma))
-    y = _contrast_curve(y, contrast)
+        x = transform_piecewise_srgb_to_gamma22(x, white_level)
+    gamma_ratio = max(0.65, min(1.45, float(state.gamma) / 2.2))
+    y = _contrast_curve(x ** gamma_ratio, float(state.contrast))
+    brightness = max(-0.35, min(0.35, float(state.brightness_trim) / 100.0))
     return clamp(_brightness_lift(y, brightness))
 
 

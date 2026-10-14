@@ -1,0 +1,1949 @@
+{
+  "reference": "1.0.0-hotfix-3",
+  "vectors": [
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.02358866944021353
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.2664896191020784
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.46492494437314746
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.5108367622801514
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0013259308969069312
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.26284909840082954
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4661601596258237
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.5108367622801427
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019383758157157035
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.22920577583639168
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4156382024677746
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.4608767684972056
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0010851167861479422
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.22591709847373437
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4168445544719904
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.460876768497197
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 80,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.025278158628104497
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.28514396386443425
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.49680304484192583
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.5456078962578375
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0014210863690615407
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.2812552690223248
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4981186350564726
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.5456078962578284
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 80,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019393664399646866
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.21909708252121035
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3926597075082434
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.4344747325834529
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0011440530723931795
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.21601351919754178
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.39377608524124585
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.43447473258344493
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 80,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.0018359629623697304
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.13640984024165875
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3592732738121723
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.42124169171596393
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 1.1126602736135655e-05
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.1331385348209164
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.360897983081676
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.421241691715952
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 80,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.07936152171121959
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.31532928136251326
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4489910481656788
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.4858567653886785,
+      "expected": 0.48004158249515533
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.017491125624488638
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.3126818909350382
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.44981415565713234
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.4858567653886785,
+      "expected": 0.4800415824951494
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 80,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.02358866944021353
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.2664896191020784
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.46492494437314746
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.6222909897471778
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0006111563063037741
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.2499529900628199
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.466481649301886
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.6222909897471778
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019383758157157035
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.22920577583639168
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4156382024677746
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.5742218546477877
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0005000931085786368
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.2143040177468712
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4171586285488191
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.5742218546477877
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 240,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.025278158628104497
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.28514396386443425
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.49680304484192583
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.6607275519662519
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0006550187357419187
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.267478482291803
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.49846103984817525
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.6607275519662519
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 240,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019393664399646866
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.21909708252121035
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3926597075082434
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.5397551291435851
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.0005347311907658272
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.20511725193187635
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.3940667223015542
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.5397551291435851
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 240,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.0018359629623697304
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.13640984024165875
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3592732738121723
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.5827039689028256
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 2.8185646870321613e-06
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.12181923604545729
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.3613212505952163
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.5827039689028256
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 240,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.07936152171121959
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.31532928136251326
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4489910481656788
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.5982564221974828,
+      "expected": 0.5602072079270766
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.011737203899862558
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.30321371905350275
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.45002849087740665
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.5982564221974828,
+      "expected": 0.5602072079270766
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 240,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.02358866944021353
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.2664896191020784
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.46492494437314746
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.6942181334858524
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.00037776612707106014
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.2344951982273158
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4639935801176782
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.6942181334858524
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7704854076066194
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019383758157157035
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.22920577583639168
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4156382024677746
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.6501475186027736
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.00030910282164689983
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.200459034199911
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.41472899085722503
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.6501475186027736
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7331687848874626
+    },
+    {
+      "white": 480,
+      "gamma": 2.2,
+      "contrast": 0,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.025278158628104497
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.28514396386443425
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.49680304484192583
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.7322163312345592
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.00040487880273201406
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.25096190430327636
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4958110606090729
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.7322163312345592
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.8054501595618264
+    },
+    {
+      "white": 480,
+      "gamma": 2.0,
+      "contrast": 10,
+      "brightness": 10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.019393664399646866
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.21909708252121035
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3926597075082434
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.6125881500158223
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.00033341561077591774
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.19211097730291343
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.39181825914022717
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.6125881500158223
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.694947869233219
+    },
+    {
+      "white": 480,
+      "gamma": 2.4,
+      "contrast": -10,
+      "brightness": -10,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.0018359629623697304
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.13640984024165875
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.3592732738121723
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.6873371806264503
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 1.2012645204147093e-06
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.10881375765466991
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.3580498610684222
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.6873371806264503
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.7884758122621696
+    },
+    {
+      "white": 480,
+      "gamma": 3.0,
+      "contrast": 30,
+      "brightness": 35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.02148621379868528,
+      "expected": 0.07936152171121959
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.24784769746923505,
+      "expected": 0.31532928136251326
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.44028157342046104,
+      "expected": 0.4489910481656788
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.672182826044313,
+      "expected": 0.6167598757155422
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Off",
+      "input": 1.0,
+      "expected": 1
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.02148621379868528,
+      "expected": 0.00916844221053144
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.24784769746923505,
+      "expected": 0.29166637727990863
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.44028157342046104,
+      "expected": 0.4483708386753458
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.672182826044313,
+      "expected": 0.6167598757155422
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 0.751827096247041,
+      "expected": 0.6826069920493731
+    },
+    {
+      "white": 480,
+      "gamma": 1.6,
+      "contrast": -30,
+      "brightness": -35,
+      "correction": "Auto (Recommended)",
+      "input": 1.0,
+      "expected": 1
+    }
+  ]
+}

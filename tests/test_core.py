@@ -162,10 +162,10 @@ class CoreTests(unittest.TestCase):
     def test_dylan_direction_darkens_sdr_midtones_and_leaves_hdr_above_white_untouched(self):
         white = 200.0
         mid_input = pq_inverse_eotf(10.0)
-        corrected = transform_piecewise_srgb_to_gamma(mid_input, white, 2.2)
+        corrected = transform_piecewise_srgb_to_gamma(mid_input, white)
         self.assertLess(corrected, mid_input)
         hdr_input = pq_inverse_eotf(500.0)
-        self.assertAlmostEqual(transform_piecewise_srgb_to_gamma(hdr_input, white, 2.2), hdr_input, places=12)
+        self.assertAlmostEqual(transform_piecewise_srgb_to_gamma(hdr_input, white), hdr_input, places=12)
 
     def test_auto_white_resolution_uses_windows_readback(self):
         self.assertEqual(resolve_white_level("Auto (Recommended)", 312.5), 312.5)
@@ -869,85 +869,25 @@ class OverwriteInstalledProfileTests(unittest.TestCase):
 
 
 class CorrectionTargetGammaTests(unittest.TestCase):
-    """The Gamma slider sets the correction's target rather than applying a second power.
-
-    The correction's defining promise is that everything above diffuse SDR white is left
-    at exact identity, because native HDR content lives there and does not want it. A
-    power applied to PQ code afterwards lifts that range too, so moving one slider used to
-    silently rebrighten HDR highlights the correction never touches.
-    """
-
-    @staticmethod
-    def output_nits(state, nits, white=200.0):
-        from vhdr_color.curves import build_transform
-        from vhdr_color.gamma_correction import pq_eotf, pq_inverse_eotf
-
-        transform = build_transform(state, hdr=True, sdr_white_nits=white)
-        position = pq_inverse_eotf(nits) * (len(transform.red) - 1)
-        low = int(position)
-        high = min(len(transform.red) - 1, low + 1)
-        value = transform.red[low] + (transform.red[high] - transform.red[low]) * (position - low)
-        return pq_eotf(value)
-
-    def corrected(self, gamma):
-        from vhdr_color.model import ModeState
-
+    """The fixed correction and the independent Gamma slider are separate stages."""
+    def test_neutral_gamma_on_is_fixed_22_correction(self):
+        from vhdr_color.curves import _shape_curve
+        from vhdr_color.gamma_correction import transform_piecewise_srgb_to_gamma22
         state = ModeState.neutral("HDR")
-        state.sdr_gamma_correction = "200 nits / Brightness 30"
-        state.gamma = gamma
-        return state
+        state.sdr_gamma_correction = "Auto (Recommended)"
+        for nits in (0.01, 5, 50, 100, 200, 1000):
+            code = pq_inverse_eotf(nits)
+            self.assertAlmostEqual(_shape_curve(code, state, True, 200),
+                                   transform_piecewise_srgb_to_gamma22(code, 200), places=12)
 
-    def test_highlights_are_untouched_at_every_gamma_setting(self):
-        for gamma in (1.8, 2.0, 2.2, 2.4, 2.6):
-            for nits in (400.0, 1000.0, 4000.0):
-                with self.subTest(gamma=gamma, nits=nits):
-                    self.assertAlmostEqual(
-                        self.output_nits(self.corrected(gamma), nits), nits, delta=nits * 0.01,
-                        msg="the correction stopped being identity above diffuse white",
-                    )
-
-    def test_diffuse_white_itself_stays_put(self):
-        for gamma in (1.8, 2.2, 2.6):
-            with self.subTest(gamma=gamma):
-                self.assertAlmostEqual(
-                    self.output_nits(self.corrected(gamma), 200.0), 200.0, delta=2.0)
-
-    def test_the_slider_does_move_the_sdr_range(self):
-        """It must still do something, or it would be a control that does nothing."""
-        dark = self.output_nits(self.corrected(2.4), 50.0)
-        bright = self.output_nits(self.corrected(2.0), 50.0)
-        self.assertGreater(bright, dark * 1.05)
-
-    def test_the_curve_is_the_correction_evaluated_at_the_slider_target(self):
-        """The LUT against the same correction function called directly at gamma 2.0.
-
-        Not an independent reference: both sides use gamma_correction, so this checks the
-        wiring -- the slider reaching the correction as its target, and the LUT sampling
-        it -- rather than the maths itself."""
-        from vhdr_color.gamma_correction import (
-            pq_eotf,
-            pq_inverse_eotf,
-            transform_piecewise_srgb_to_gamma,
-        )
-
-        for nits in (5.0, 50.0, 100.0):
-            with self.subTest(nits=nits):
-                expected = pq_eotf(
-                    transform_piecewise_srgb_to_gamma(pq_inverse_eotf(nits), 200.0, 2.0))
-                self.assertAlmostEqual(
-                    self.output_nits(self.corrected(2.0), nits), expected, delta=expected * 0.02)
-
-    def test_gamma_still_works_as_a_plain_power_with_the_correction_off(self):
-        """With nothing to fold a target into, it has to stay an independent control."""
-        from vhdr_color.model import ModeState
-
-        state = ModeState.neutral("HDR")
-        state.sdr_gamma_correction = "Off"
-        state.gamma = 2.0
-        raised = self.output_nits(state, 100.0)
-        state.gamma = 2.4
-        lowered = self.output_nits(state, 100.0)
-        self.assertGreater(raised, lowered)
+    def test_gamma_adjusts_both_profiles_after_the_fixed_correction(self):
+        from vhdr_color.curves import _shape_curve
+        for correction in ("Off", "Auto (Recommended)"):
+            state = ModeState.neutral("HDR"); state.sdr_gamma_correction = correction
+            state.gamma = 2.0
+            bright = _shape_curve(pq_inverse_eotf(50), state, True, 200)
+            state.gamma = 2.4
+            self.assertGreater(bright, _shape_curve(pq_inverse_eotf(50), state, True, 200))
 
 
 class RetiredCorrectionOptionTests(unittest.TestCase):
@@ -1184,98 +1124,41 @@ class InPlaceProfileRetryTests(unittest.TestCase):
 
 
 class CorrectionFoldsToneControlsTests(unittest.TestCase):
-    """While the SDR-in-HDR correction is on, Contrast and Midtone Brightness shape the SDR
-    range it owns, as Gamma already did. With it off they stay whole-range HDR controls,
-    which is what the README and the tooltips promise.
-
-    Applied to PQ code after the correction, +10 contrast lifted a 1000-nit highlight by
-    17%: native HDR, which the correction exists to leave alone, moved with every trim."""
-
-    WHITE = 200.0
-    TRIMS = (-30.0, -10.0, 10.0, 30.0)
-
-    @staticmethod
-    def state(correction="200 nits / Brightness 30", contrast=0.0, brightness=0.0):
-        state = ModeState.neutral("HDR")
-        state.sdr_gamma_correction = correction
-        state.contrast = contrast
-        state.brightness_trim = brightness
-        return state
-
-    def shaped_nits(self, state, nits):
+    """Regression: equal brightness trims have the same PQ-domain effect Off and On."""
+    def test_same_trim_has_the_same_normalized_lift_in_both_profiles(self):
         from vhdr_color.curves import _shape_curve
-        from vhdr_color.gamma_correction import pq_eotf
-
-        return pq_eotf(_shape_curve(pq_inverse_eotf(nits), state, True, self.WHITE))
-
-    def test_highlights_are_exact_identity_at_every_trim_while_correcting(self):
-        from vhdr_color.curves import _shape_curve
-
-        for contrast in self.TRIMS:
-            for brightness in self.TRIMS:
-                state = self.state(contrast=contrast, brightness=brightness)
-                for nits in (201.0, 400.0, 1000.0, 4000.0, 10000.0):
+        for correction in ("Off", "Auto (Recommended)"):
+            for trim in (-35, -10, 10, 35):
+                for nits in (1, 20, 100, 200, 1000):
+                    state = ModeState.neutral("HDR"); state.sdr_gamma_correction = correction
                     code = pq_inverse_eotf(nits)
-                    with self.subTest(contrast=contrast, brightness=brightness, nits=nits):
-                        self.assertEqual(code, _shape_curve(code, state, True, self.WHITE))
+                    base = _shape_curve(code, state, True, 200)
+                    state.brightness_trim = trim
+                    moved = _shape_curve(code, state, True, 200)
+                    with self.subTest(correction=correction, trim=trim, nits=nits):
+                        self.assertAlmostEqual((moved-base)/(base*(1-base)), trim/100, places=10)
 
-    def test_they_still_move_the_sdr_range_while_correcting(self):
-        """Folded in, they must still do something, or they are controls that do nothing."""
-        neutral = self.state()
-        self.assertGreater(
-            abs(self.shaped_nits(self.state(contrast=20.0), 20.0) - self.shaped_nits(neutral, 20.0)),
-            0.02 * self.shaped_nits(neutral, 20.0),
-        )
-        self.assertGreater(
-            self.shaped_nits(self.state(brightness=20.0), 50.0),
-            1.02 * self.shaped_nits(neutral, 50.0),
-        )
-
-    def test_the_trims_shape_the_sdr_signal_before_the_power_curve(self):
-        """The documented contract, checked against the formula written out by hand.
-        Shaping relative luminance after the power instead keeps every property above
-        and moves the pivot, so only this can tell the two apart."""
-        from vhdr_color.curves import _brightness_lift, _contrast_curve
-        from vhdr_color.gamma_correction import srgb_inverse_eotf
-
-        state = self.state(contrast=20.0, brightness=10.0)
-        for nits in (5.0, 50.0, 150.0):
-            signal = srgb_inverse_eotf(nits / self.WHITE)
-            expected = self.WHITE * _brightness_lift(_contrast_curve(signal, 20.0), 0.10) ** 2.2
-            with self.subTest(nits=nits):
-                self.assertAlmostEqual(self.shaped_nits(state, nits), expected, delta=expected * 1e-6)
-
-    def test_diffuse_white_stays_continuous_at_every_trim(self):
+    def test_above_sdr_white_on_and_off_agree_with_nonzero_tone_edits(self):
         from vhdr_color.curves import _shape_curve
+        for gamma in (1.6, 2.2, 3):
+            for contrast, brightness in ((0, 10), (10, 10), (-30, -35)):
+                state = ModeState.neutral("HDR")
+                state.gamma, state.contrast, state.brightness_trim = gamma, contrast, brightness
+                for nits in (201, 500, 1000, 4000):
+                    state.sdr_gamma_correction = "Off"
+                    off = _shape_curve(pq_inverse_eotf(nits), state, True, 200)
+                    state.sdr_gamma_correction = "Auto (Recommended)"
+                    self.assertEqual(off, _shape_curve(pq_inverse_eotf(nits), state, True, 200))
 
-        below = pq_inverse_eotf(self.WHITE * (1.0 - 1e-6))
-        above = pq_inverse_eotf(self.WHITE * (1.0 + 1e-6))
-        for contrast in self.TRIMS:
-            for brightness in self.TRIMS:
-                state = self.state(contrast=contrast, brightness=brightness)
-                with self.subTest(contrast=contrast, brightness=brightness):
-                    self.assertAlmostEqual(
-                        _shape_curve(below, state, True, self.WHITE),
-                        _shape_curve(above, state, True, self.WHITE),
-                        delta=1e-4,
-                    )
-
-    def test_the_curve_stays_monotone_at_every_trim_while_correcting(self):
-        from vhdr_color.curves import _shape_curve
-
-        for contrast in (-30.0, 30.0):
-            for brightness in (-30.0, 30.0):
-                state = self.state(contrast=contrast, brightness=brightness)
-                values = [_shape_curve(i / 4095, state, True, self.WHITE) for i in range(4096)]
-                with self.subTest(contrast=contrast, brightness=brightness):
-                    self.assertTrue(all(b >= a for a, b in zip(values, values[1:])))
-
-    def test_with_the_correction_off_they_act_on_the_whole_range(self):
-        """Documented behaviour, kept: an HDR OSD's contrast moves highlights too."""
-        for trim in ({"contrast": 10.0}, {"brightness": 10.0}):
-            with self.subTest(**trim):
-                moved = self.shaped_nits(self.state(correction="Off", **trim), 1000.0)
-                self.assertGreater(abs(moved - 1000.0), 50.0)
+    def test_tone_curves_remain_monotone_and_endpoint_preserving(self):
+        for correction in ("Off", "Auto (Recommended)"):
+            for gamma, contrast, brightness in ((1.6, -30, 35), (3, 30, -35)):
+                state = ModeState.neutral("HDR")
+                state.sdr_gamma_correction = correction
+                state.gamma, state.contrast, state.brightness_trim = gamma, contrast, brightness
+                curve = build_transform(state, True, 200).red
+                self.assertEqual((curve[0], curve[-1]), (0, 1))
+                self.assertTrue(all(a<=b for a,b in zip(curve,curve[1:])))
 
 
 class MHC2LayoutTests(unittest.TestCase):
@@ -1461,43 +1344,19 @@ class CorruptStateTests(unittest.TestCase):
 
 
 class DesktopPiecewiseGammaTests(unittest.TestCase):
-    def test_off_neutral_is_identity_and_gamma_holds_white_and_hdr_highlights(self):
+    def test_off_gamma_is_hotfix3_independent_pq_power(self):
         from vhdr_color.curves import _shape_curve
-        for white in (80,100,240,480):
-            for gamma in (1.6,2.2,3.0):
-                state=ModeState.neutral("HDR");state.gamma=gamma
-                for nits in (0,white,white*1.1,1000,10000):
-                    pq=pq_inverse_eotf(nits)
-                    self.assertAlmostEqual(_shape_curve(pq,state,True,white),pq,places=10)
-                if gamma==2.2:
-                    for nits in (.001,.1,1,20,white*.7):
-                        pq=pq_inverse_eotf(nits)
-                        self.assertEqual(_shape_curve(pq,state,True,white),pq)
+        state = ModeState.neutral("HDR"); state.gamma = 2.8
+        for nits in (.1, 50, 240, 1000, 4000):
+            code = pq_inverse_eotf(nits)
+            self.assertAlmostEqual(_shape_curve(code, state, True, 240), code**(2.8/2.2), places=12)
 
-    def test_off_gamma_matches_relative_piecewise_signal_not_exposure(self):
+    def test_off_neutral_stays_identity_for_any_desktop_white(self):
         from vhdr_color.curves import _shape_curve
-        from vhdr_color.gamma_correction import pq_eotf,srgb_inverse_eotf
-        state=ModeState.neutral("HDR");state.gamma=2.8
-        ratios=[]
-        for signal in (.02,.2,.5,.9):
-            linear=signal/12.92 if signal<=.04045 else ((signal+.055)/1.055)**2.4
-            nits=240*linear
-            out=pq_eotf(_shape_curve(pq_inverse_eotf(nits),state,True,240))
-            self.assertAlmostEqual(srgb_inverse_eotf(out/240),signal**(2.8/2.2),places=8)
-            ratios.append(out/nits)
-        self.assertGreater(max(ratios)-min(ratios),.2)
-
-    def test_real_lut_keeps_native_hdr_identity_and_is_monotonic(self):
-        from vhdr_color.greyscale import sample
-        from vhdr_color.gamma_correction import pq_eotf
-        for white in (80,240,480):
-            for gamma in (1.6,3.0):
-                state=ModeState.neutral("HDR");state.gamma=gamma
-                curve=build_transform(state,True,white).red
-                self.assertTrue(all(a<=b for a,b in zip(curve,curve[1:])))
-                for nits in (white*1.1,1000,4000):
-                    self.assertAlmostEqual(pq_eotf(sample(curve,pq_inverse_eotf(nits))),nits,delta=.01)
-                self.assertLess(pq_eotf(sample(curve,pq_inverse_eotf(white*.1))),white*.1) if gamma>2.2 else self.assertGreater(pq_eotf(sample(curve,pq_inverse_eotf(white*.1))),white*.1)
+        state = ModeState.neutral("HDR")
+        for white in (80, 240, 480):
+            for code in (0, .1, .5, .9, 1):
+                self.assertEqual(_shape_curve(code,state,True,white),code)
 
 
 if __name__ == "__main__":

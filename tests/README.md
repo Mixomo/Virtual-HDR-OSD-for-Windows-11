@@ -42,6 +42,35 @@ include the group name and the end of its log.
 The portable build script also runs this suite before compiling, using its own
 `.build-venv` environment.
 
+## Quick smoke checks
+
+For a focused check of the recent changes, run:
+
+```powershell
+.venv\Scripts\python.exe tools/run_tests.py --group test_gamma_compatibility --group test_patterns --group test_pattern_view --group test_gui.DiagnosticApplicationTests --group test_gui.IndependentWhiteThresholdTests --group test_packaging.WatchdogDistributionTests --group test_packaging.StandaloneArchiveTests
+```
+
+This checks the hotfix-3 tone calculations and brightness trim in both correction
+variants; guided warnings and gamma-target controls; the fixed diagnostic catalog
+with no edit, record or apply actions; independent manual luminance values; and
+matching watchdog scripts and ZIP contents. Expect `0 failed`, `0 skipped` and
+exit code `0` on the prepared Windows environment. It is a focused subset of the
+suite, not an executable startup or physical display test.
+
+After compiling, also open `release\Virtual HDR OSD for Windows.exe` and confirm
+that the main window appears without an error. In **Test Patterns…**, check that
+**Diagnostic patterns** offers only navigation and exit, without sliders or an
+apply action. For the guided workflow, use an HDR-enabled display: check that the
+intro and both white warnings appear before their patterns, Enter continues and
+N skips the optional white steps. The gamma step has separate profile controls
+and a pattern-only target from 1.6 to 3.0 in 0.1 increments; Home restores 2.2.
+Opening the white patterns can be very bright: follow the warnings first.
+
+Those manual checks exercise the real executable and display. Automated fixtures
+cannot establish visual gamma matching, HDR output quality or long-term stability.
+Internal smoke scripts under `.audit-validation` are local validation artifacts,
+not part of the published suite or a requirement for running these commands.
+
 ## Run a module or a GUI class
 
 Use the filename without `.py`:
@@ -105,6 +134,7 @@ tests pass when invalid input is rejected, not when it is accepted.
 | `test_delta_itp.py` | Colour-difference calculations and their mathematical properties. | Identical colours have zero difference, neutral white stays achromatic and the metric behaves consistently across luminance levels. |
 | `test_edid.py` | EDID blocks, declared luminance, chromaticities and display-path parsing. | Valid declarations decode correctly; missing or malformed data is not treated as a measured value. |
 | `test_elevation.py` | Administrator detection and relaunch command construction, using injected Windows calls. | Commands and arguments are preserved; cancelled or failed UAC requests are reported without actually elevating a process. |
+| `test_gamma_compatibility.py` | Tone output against 216 stored hotfix-3 reference vectors and generated Off/On LUTs. | Both profiles use the legacy tone order; a +10 brightness trim remains active after toggling correction. |
 | `test_gamut.py` | BT.2020 conversion, signed FP16 patches, coverage geometry and the separate gamut sweep. | Wide-colour components survive encoding; coverage uses intersection area; invalid sweeps are refused without changing the balance correction. |
 | `test_golden_vectors.py` | PQ, sRGB, Bradford adaptation, ICtCp and generated profiles against independent reference calculations. | Results agree with the reference values within the tests' stated tolerances. |
 | `test_greyscale.py` | Measured-response storage, interpolation, inverse correction and simulated closed-loop calibration. | Curves correct the simulated response, survive profile round trips and handle clipping without building an invalid inverse. |
@@ -115,8 +145,8 @@ tests pass when invalid input is rejected, not when it is accepted.
 | `test_measure_view.py` | Measurement-window frames, UI-thread presentation, worker results, placement, cancellation and shutdown with fake surfaces. | A patch is presented before reading, signed gamut values reach the surface, and the worker reports one outcome and shuts down correctly. |
 | `test_meter.py` | `spotread` commands, reading parsing, instrument discovery and subprocess error handling. | Valid output becomes a reading; meter errors, malformed output and cancellation are handled without requiring an instrument. |
 | `test_packaging.py` | Launch/build scripts, dependency pins, watchdog copies and ZIP, license inclusion, entry points and documentation accuracy. | Distributed scripts match, the archive contains its required files, downloads require the expected hash and documented options match the code. |
-| `test_pattern_view.py` | Fullscreen pattern controls, guided/free sessions, recording, overlays, typed values, dragging and application feedback. | Inputs affect the intended control; sessions stay separate; skipped or refused readings are not saved as valid measurements. |
-| `test_patterns.py` | Frame geometry, luminance levels, device-pixel gamma references, colour patches and overlays. | Frames have the required size and levels; reference pixels remain correctly placed; gamma changes affect the intended target. |
+| `test_pattern_view.py` | Read-only diagnostic catalog and blocked edit/record/apply callbacks; fullscreen guided controls, independent gamma-goal arrows/reset and target slider, guided/diagnostic sessions, introduction and both white warning screens, recording, overlays, typed values, dragging and application feedback. | Inputs affect the intended control; Enter opens the warned pattern, N skips a white step, repeated Enter cannot bypass the warning; skipped or refused readings are not saved as valid measurements. Diagnostic sessions cannot change settings or apply profiles. |
+| `test_patterns.py` | Frame geometry, luminance levels, device-pixel gamma references, colour patches and overlays. | Frames have the required size and levels; horizontal lines remain at native pixel size; nine dots share the selected target; paired feathering preserves optical matching after one profile correction. |
 | `test_persistence.py` | Atomic JSON writes, loading missing/corrupt state and watchdog build identity. | Saved data is complete, failures are reported appropriately and the build identity follows the relevant payload. |
 | `test_watchdog.py` | Embedded-script integrity, profile decisions, gamma hotkeys, logging limits, native recovery and startup fallback. | Recovery follows the active mode and intent; queues/retries/logging stay bounded; fallback failures are reported. Registry and scheduler writes are simulated. |
 

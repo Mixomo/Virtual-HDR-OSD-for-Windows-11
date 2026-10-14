@@ -195,8 +195,8 @@ class ModeState:
             "contrast": (-30.0, 30.0),
             "brightness": (0.0, 100.0),
             "minimum_luminance_nits": (0.0, 100.0),
-            "peak_luminance_nits": (80.0, 10000.0),
-            "full_frame_luminance_nits": (80.0, 10000.0),
+            "peak_luminance_nits": (0.0, 10000.0),
+            "full_frame_luminance_nits": (0.0, 10000.0),
         }
         for key, (low, high) in limits.items():
             try:
@@ -255,9 +255,6 @@ class ModeState:
 
         merged["minimum_luminance_nits"] = min(
             merged["minimum_luminance_nits"], merged["peak_luminance_nits"]
-        )
-        merged["full_frame_luminance_nits"] = min(
-            merged["full_frame_luminance_nits"], merged["peak_luminance_nits"]
         )
         merged["profile_name"] = (_text(merged.get("profile_name")) or base.profile_name)[:160]
         merged["imported_profile"] = _text(merged.get("imported_profile"))

@@ -74,8 +74,7 @@ its calibration until that monitor is available again.
 ## SDR-in-HDR gamma correction
 
 In HDR mode, Windows displays SDR using an sRGB curve with a linear section near
-black. This correction replaces the lower part with a gamma curve based on your
-Gamma setting. Windows **SDR content brightness** stays at its current value.
+black. This correction replaces the lower part with a fixed gamma 2.2 curve. Windows **SDR content brightness** stays at its current value.
 
 | Option | Use |
 | --- | --- |
@@ -87,48 +86,72 @@ Gamma setting. Windows **SDR content brightness** stays at its current value.
 | **400 nits / Brightness 80** | Fixed reference-white setting. |
 
 The whole display receives the correction, including dark areas of HDR content.
-Use **Alt+1** to turn it off when appropriate. Gamma alone preserves SDR white and
-the higher HDR range; with correction Off, Brightness and Contrast can still affect
-the wider tone range. See the [technical reference](docs/TECHNICAL.md#tone-and-colour)
-for the processing order.
+Use **Alt+1** to turn it off when appropriate. Gamma, Midtone Brightness and Contrast
+are independent adjustments applied after the optional correction, in the same
+order for both Off and On profiles. These adjustments can affect HDR highlights.
+See the [technical reference](docs/TECHNICAL.md#tone-and-colour) for the processing order.
 
 ## The guided run
 
-**Test Patterns…** offers **Guided calibration** and **Browse all patterns** as separate
-sessions. The guide uses a 4-step sequence. The first three let you find the level where
-the shape disappears. The final step is for gamma and tone adjustments.
+**Test Patterns…** offers **Guided calibration** and **Diagnostic patterns** as separate
+sessions. An introductory screen explains the reported panel values read by **Calibrate
+Display** and when manual adjustment is useful; press **Enter** to begin.
+The guide uses a 4-step sequence. The first three let you find the level where
+the shape disappears. The final step is for SDR gamma matching and tone adjustments.
 
 | step | purpose | what to do |
 | --- | --- | --- |
 | Black level | Set the black threshold. | Adjust until the shape disappears. |
 | Peak white | Set the central-window white threshold. | Adjust until the shape disappears. |
 | Full-frame white | Set the full-screen white threshold. | Adjust until the circle disappears. |
-| Gamma match | Compare the TARGET with the fine grey reference. | Use the pattern readout to check gamma; use Tab for profile tone controls. |
+| Gamma match | Minimize the nine centre dots. | Start at target 2.2; Up/Down selects another goal, Left/Right adjusts the profile. |
+
+Before the central white frame, a dark screen warns about brightness and offers
+Enter to open it or N to skip. Before full-frame white, a separate screen explains ABL and the limits of visual
+sustained-brightness checks. Press **N** there to skip and keep the existing value,
+or **Enter** to open the pattern. It may be more useful on MiniLED, but local dimming
+and tone mapping still affect it. Move away and partly close your eyes before
+opening the potentially bright full-screen pattern.
 
 Press **Enter** to record and continue, **N** to skip a step, or **Esc** to leave.
 Skipping keeps the previous reading but does not undo slider edits already applied.
+Enter always continues past the white checks. If the level
+cannot be stored as valid profile metadata, the existing value is kept and the
+step is marked skipped in the results.
 Recorded values enter the editor as you go. The results screen can apply them;
 you can also use **Apply Edits** afterwards.
 
 The three luminance steps follow the same order as Windows HDR Calibration.
 Their visual thresholds are not physical brightness measurements. Full-frame white
-is stored separately and cannot exceed peak white.
-
+is stored separately. Its visual clipping threshold is independent of central peak
+and the panel declaration. The guide writes black into **Minimum Luminance**, central white into **Peak Luminance**
+and full-frame white into **Sustained Luminance**. 
 ### Matching gamma
 
-Look at the pattern from a distance or slightly defocus your eyes. The fine grey
-background should blend into a uniform level. Adjust **Custom pattern gamma** until
-the TARGET appears equally bright. Use arrows for 0.005 steps, drag the slider,
-or press **E** for an exact value.
+The pattern follows the classic Windows calibrator's layout: nine soft circular
+areas with centre dots over horizontal one-pixel stripes. Move back or slightly
+defocus until the stripes blend into grey, then minimize the dots with the real
+profile **Gamma** control.
 
-The matching value gives an estimate of gamma with your current display setup.
-It adjusts the pattern itself, so **do not use it directly as the profile correction**.
-Use **Tab** to select the real Gamma, Midtone Brightness or Contrast controls, then
-check the match again.
+**Up/Down** selects the pattern's gamma goal from **1.600 to 3.000**, in steps of
+**0.1**. **Home** restores the desktop goal **2.200**. Its separate slider also snaps to tenths. Changing this goal only
+changes the reference image; it does not edit the profile. **Left/Right**, dragging
+and **E** adjust the selected profile control; **Tab** selects Gamma, Midtone
+Brightness or Contrast. These editing keys are available only in guided calibration.
 
-**G** switches between Reference match, Reference rows and Profile adjustment.
-Reference rows include fixed 1.8, 2.0, 2.2 and 2.4 targets plus CUSTOM.
-**P** shows a smooth average preview; use the fine reference for gamma matching.
+Choose the SDR-in-HDR correction mode before matching. For an initial gamma check,
+start with neutral Midtone Brightness and Contrast; recheck after changing either.
+The pattern follows piecewise sRGB input decoding and Windows desktop reference
+white. It does not apply the gamma fix internally: the active profile supplies it.
+Use native resolution so the one-pixel reference is not resampled. If Windows SDR
+white exceeds the reported peak, lower **SDR content brightness** before matching;
+clipping and tone mapping can otherwise invalidate the comparison.
+
+The selected goal stays separate from the profile Gamma slider's numerical amount.
+It is kept while browsing within the session and starts at 2.2 in a new session.
+2.4 is an SDR video reference for dim viewing; 2.6 refers to DCI cinema.
+HDR uses PQ or HLG rather than either fixed gamma curve. The pattern is an original
+implementation of the visual principle, not a reused Windows asset or API.
 
 ## Pattern controls
 
@@ -136,21 +159,29 @@ Reference rows include fixed 1.8, 2.0, 2.2 and 2.4 targets plus CUSTOM.
 | --- | --- |
 | `Tab` | Select the next available control. |
 | `←` / `→` | Adjust the selected control or threshold. |
-| `↑` / `↓` | Move through stepped levels. |
-| `E` | Enter an exact value. |
+| `↑` / `↓` | Gamma: change the pattern goal; other stepped patterns: change test level. |
+| `Home` | Restore gamma pattern target 2.2. |
+| `E` | Enter an exact profile-control value. |
 | `Enter` | Record, continue or apply the results. |
 | `N` | Skip the current guided step. |
-| `G` / `P` | Change gamma view / toggle its average preview. |
 | `H` | Move the guidance panel. |
 | `Esc` | Close the patterns. |
 
-Free browsing also supports **`1`–`9`, `0`** to choose patterns and **S** to view
-recorded readings. Its additional patterns include tone tracking, neutral and colour
-checks. Number keys do not switch the guided session into free browsing.
+### Diagnostic patterns
 
-A pattern remembers its own test level. Changes to the profile carry across patterns
-so you can check the same adjustment in different views. HDR patterns temporarily enable Live Apply and restore
-its previous setting on exit. In SDR, free browsing is reference-only.
+The separate diagnostic session shows only fixed inspection patterns: grey staircase,
+shadow ladder, neutral ramp, colour patches, highlight separation, full-screen grey
+uniformity, pixel sharpness, RGB gradients and RGB pixel fields. Guided black, white
+and gamma targets are excluded.
+
+**1-9** selects a diagnostic; **Left/Right** moves to the previous/next pattern,
+**H** moves the information panel, and **Esc** closes it. There are no sliders,
+editable levels, recorded readings, results screen or Apply action. Live Apply is
+paused during diagnostics and its previous preference is restored on exit.
+
+In the guide, adjustments carry across steps because they edit the same profile.
+Guided HDR calibration temporarily enables Live Apply and restores its preference
+on exit. Diagnostics are available in SDR and HDR and never edit a profile.
 
 ## Optional colorimeter measurements [**NOT TESTED**]
 
@@ -223,21 +254,14 @@ geometry, gamut limits, profile recovery, startup fallback, diagnostics and buil
 
 ## Changelog
 
-### 2026-10-12 - dkflint723´s Fork integration and follow-up corrections
+### 2026-10-13 - Current update
 
-- Integrated the fork's profile/API fixes, per-display profile selection, persistence,
-  accessibility, calibration patterns and optional instrument measurements.
-- Refined the guided workflow into black, central white, full-frame white and gamma;
-  separated free browsing and added skip controls.
-- Corrected gamma processing, refined grey matching patterns and added a fine custom
-  reference slider with tone controls in the same step.
-- Improved bounded profile recovery and restored the HKCU startup fallback while
-  preserving Alt+1/2/3.
-- Added BT.2020 measurement probes and effective gamut coverage reports.
-- Updated portable/standalone packaging, tests and documentation.
+- Restored hotfix-3 tone behavior and consistent Off/On brightness adjustments.
+- Added white-pattern warnings and independent manual luminance values in the guide.
+- Added Windows-style gamma dots with a separate target slider in 0.1 steps.
+- Separated the guide from nine view-only diagnostics and improved text brightness.
 
-See the [full changelog](CHANGELOG.md) for the fork contributions and our subsequent
-adjustments. 
+The [full changelog](CHANGELOG.md) records the fork integration and subsequent fixes.
 
 ## License and credits
 

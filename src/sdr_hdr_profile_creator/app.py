@@ -507,7 +507,10 @@ class MainWindow(FluentWidget):
         """
         if self._state_unopened:
             return
-        if self._write_json_atomic(STATE_PATH, self.state.to_dict()):
+        saved=self.state.to_dict()
+        if getattr(self,"_pattern_window",None) is not None and getattr(self,"_pattern_diagnostic",False):
+            saved["live_mode"]=self._pattern_previous_live
+        if self._write_json_atomic(STATE_PATH, saved):
             return
         # Guarded: closeEvent calls this after the status bar may already be gone,
         # and a failure to save must not become a failure to close.
@@ -964,16 +967,16 @@ class MainWindow(FluentWidget):
             "rather than hidden.",
         )
         luminance_card.add_widget(self._make_control(ControlSpec(
-            "peak_luminance_nits", "Peak Luminance", 80.0, 10000.0, 1000.0, 0.01, " nits", 2, "panel",
+            "peak_luminance_nits", "Peak Luminance", 0.0, 10000.0, 1000.0, 0.01, " nits", 2, "panel",
             "The brightest a small highlight can go. Written into the MHC2 header and "
-            "used as the ceiling for the sustained figure below."
+            "kept independent of the manually selected full-frame threshold."
         )))
         luminance_card.add_widget(self._make_control(ControlSpec(
-            "full_frame_luminance_nits", "Sustained Luminance", 80.0, 10000.0, 400.0, 0.01, " nits", 2, "panel",
+            "full_frame_luminance_nits", "Sustained Luminance", 0.0, 10000.0, 400.0, 0.01, " nits", 2, "panel",
             "What the display holds with the whole screen lit, which on an emissive "
             "panel is far below peak because of its brightness limiter. This is the "
-            "profile's lumi tag. It cannot exceed peak; raising it past peak raises "
-            "peak with it."
+            "profile's lumi tag. A manually selected visual threshold is stored "
+            "independently of peak; it is not a physical brightness measurement."
         )))
         # Beside the number it sets, rather than in the top bar. It is the one figure
         # here that is still declared rather than measured -- Calibrate Display takes it
@@ -1287,28 +1290,6 @@ class MainWindow(FluentWidget):
         if self._loading_controls:
             return
         setattr(self.state.hdr, field, value)
-        # Sustained cannot exceed peak; a panel doing that would be reporting fiction,
-        # and ModeState.from_dict silently clamps it on the next load, so leaving the
-        # two disagreeing means the editor shows one thing and the profile carries
-        # another. Reconciled here rather than refused, because either direction is a
-        # reasonable thing to mean: pulling peak down takes sustained with it, and
-        # pushing sustained up raises the ceiling it is measured against.
-        if field in ("peak_luminance_nits", "full_frame_luminance_nits"):
-            state = self.state.hdr
-            if state.full_frame_luminance_nits > state.peak_luminance_nits:
-                other = (
-                    "full_frame_luminance_nits"
-                    if field == "peak_luminance_nits"
-                    else "peak_luminance_nits"
-                )
-                setattr(self.state.hdr, other, value)
-                widget = self.control_widgets.get(other)
-                if widget is not None:
-                    was_loading, self._loading_controls = self._loading_controls, True
-                    try:
-                        widget.set_value(value, emit=False)
-                    finally:
-                        self._loading_controls = was_loading
         if field == "gamma":
             self._set_status(f"Traditional Gamma = {value:.3f} (2.200 is neutral).", "ok")
         else:
@@ -1453,6 +1434,8 @@ class MainWindow(FluentWidget):
             self.live_timer.start()
 
     def _apply_live_edit(self) -> None:
+        if getattr(self,"_pattern_window",None) is not None and getattr(self,"_pattern_diagnostic",False):
+            return
         if not self.state.live_mode:
             return
         if getattr(self, "_pattern_window", None) is not None and hasattr(self, "_pattern_target_key"):
@@ -2492,13 +2475,10 @@ class MainWindow(FluentWidget):
         if field is None:
             return
         measured = float(nits)
-        if pattern_key == "full-frame-white" and measured > self.state.hdr.peak_luminance_nits:
-            self._set_status("Full-frame white exceeds peak white. Adjust it or skip; existing value kept.", "warning")
-            return False
         if field == "minimum_luminance_nits":
             value = max(0.0, min(100.0, measured))
         else:
-            value = max(80.0, min(10000.0, measured))
+            value = max(0.0, min(10000.0, measured))
         setattr(self.state.hdr, field, value)
         # The bounds keep the ICC fields sane, but a reading that hits one is no longer
         # the reading that was taken. Silently storing a different number than the user
@@ -2513,9 +2493,6 @@ class MainWindow(FluentWidget):
                 "warning",
             )
             return
-        # Full frame cannot exceed peak; a panel that did that would be reporting fiction.
-        if self.state.hdr.full_frame_luminance_nits > self.state.hdr.peak_luminance_nits:
-            self.state.hdr.full_frame_luminance_nits = self.state.hdr.peak_luminance_nits
         self._save_state_soon()
         self._update_activity_bar()
 
@@ -2720,10 +2697,10 @@ class MainWindow(FluentWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle("Test Patterns")
         layout = QVBoxLayout(dialog)
-        label = BodyLabel("Choose a workflow. Guided calibration ends with its own results; free browsing is a separate session.", dialog)
+        label = BodyLabel("Choose a workflow. Guided calibration adjusts and records values. Diagnostic patterns are view-only and never apply changes.", dialog)
         label.setWordWrap(True)
         layout.addWidget(label)
-        for text, guided in ((f"Guided calibration ({len(GUIDED_SEQUENCE)} steps; skip optional)", True), ("Browse all patterns (independent levels)", False)):
+        for text, guided in ((f"Guided calibration ({len(GUIDED_SEQUENCE)} steps; skip optional)", True), ("Diagnostic patterns", False)):
             button = PushButton(text, dialog)
             button.clicked.connect(lambda checked=False, mode=guided: dialog.done(1 if mode else 2))
             layout.addWidget(button)
@@ -2748,16 +2725,13 @@ class MainWindow(FluentWidget):
         self._current_display_snapshot = current
         return ""
 
-    def _pattern_gamma_white(self) -> float | None:
-        return self._effective_sdr_white_nits()
-
     def _pattern_desktop_white(self) -> float | None:
         if getattr(self, "_pattern_target_mode", "HDR") != "HDR":
             return None
         white = self._tone_reference_white_nits()
         if white != self._pattern_last_white:
             self._pattern_last_white = white
-            if getattr(self, "_pattern_window", None) is not None:
+            if getattr(self, "_pattern_window", None) is not None and not getattr(self,"_pattern_diagnostic",False):
                 self._queue_live_apply()
         return white
 
@@ -2787,7 +2761,7 @@ class MainWindow(FluentWidget):
         if busy:
             self._set_status(busy, "warning")
             return
-        if self._is_restored(display):
+        if guided and self._is_restored(display):
             # Adjusting in the patterns works by Live Apply, which a restore stops.
             self._set_status(
                 f"Windows' own profile is restored on {display.friendly_name}, so nothing "
@@ -2796,7 +2770,7 @@ class MainWindow(FluentWidget):
             )
             return
         if guided and display.current_mode != "HDR":
-            self._set_status("Guided HDR calibration requires HDR on the selected display. Enable HDR first, or choose free browsing for SDR reference patterns.", "warning")
+            self._set_status("Guided HDR calibration requires HDR on the selected display. Enable HDR first, or choose Diagnostic patterns for view-only SDR inspection.", "warning")
             return
         capability = capability_for_device_name(display.gdi_name)
         try:
@@ -2808,23 +2782,26 @@ class MainWindow(FluentWidget):
         # Adjusting a control that cannot change the display is pointless, and live mode
         # is forced off at startup, so without this the tone steps silently did nothing.
         previous_live = self.state.live_mode
-        self.state.live_mode = display.current_mode == "HDR"
+        self._pattern_previous_live = previous_live
+        self.state.live_mode = guided and display.current_mode == "HDR"
+        self._pattern_diagnostic = not guided
+        if not guided:
+            self.live_timer.stop()
         self._pattern_target_key = display.stable_key
         self._pattern_target_display_key = display.key
         self._pattern_target_mode = display.current_mode
         self._pattern_last_white = self._tone_reference_white_nits()
         window = PatternWindow(
-            capability, sdr_white, self._pattern_view_bindings(),
+            capability, sdr_white, self._pattern_view_bindings() if guided else (),
             panel=read_panel_metadata(display.device_path),
-            measure=self._record_measurement if display.current_mode == "HDR" else None,
+            measure=self._record_measurement if guided and display.current_mode == "HDR" else None,
             guided=guided,
             hdr_enabled=display.current_mode == "HDR",
-            feedback=self._pattern_apply_feedback,
+            feedback=self._pattern_apply_feedback if guided else lambda: "Diagnostic view only; no settings are changed.",
             validate=self._pattern_environment_error,
-            gamma_white=self._pattern_gamma_white,
             desktop_white=self._pattern_desktop_white,
             on_close=lambda: self._pattern_view_closed(previous_live, window),
-            apply=self._apply_from_pattern_view if display.current_mode == "HDR" else None,
+            apply=self._apply_from_pattern_view if guided and display.current_mode == "HDR" else None,
         )
         self._pattern_window = window
         self._publish_recovery_hold()
@@ -2850,7 +2827,7 @@ class MainWindow(FluentWidget):
         window.setFocus(Qt.FocusReason.OtherFocusReason)
         self._set_status(
             "Guided calibration: Enter records/advances, N skips, Esc exits."
-            if guided else "Free pattern browser: number keys select independent patterns, Tab selects the relevant control, Esc exits.",
+            if guided else "Diagnostics only: number keys or Left/Right select a pattern; Esc exits. No settings are changed.",
             "ok",
         )
 
@@ -4115,6 +4092,7 @@ class MainWindow(FluentWidget):
         if callable(retire):
             retire()
         self._pattern_window = None
+        self._pattern_diagnostic = False
         self._publish_recovery_hold()
         self._restore_live_mode(previous_live)
 
@@ -4415,7 +4393,7 @@ class MainWindow(FluentWidget):
         on_state.sdr_gamma_correction = on_option
         on_state.profile_name = "Virtual HDR OSD - Working Profile (Correction On)"
         detected_white = None
-        if on_option == "Auto (Recommended)" or abs(float(off_state.gamma) - 2.2) > 1e-12:
+        if on_option == "Auto (Recommended)":
             try:
                 detected_white = get_sdr_white_level_nits(display)
             except Exception:
@@ -4424,7 +4402,7 @@ class MainWindow(FluentWidget):
         on_white = resolve_white_level(on_option, detected_white)
 
         payloads = {
-            "Off": (off_path, build_profile("HDR", off_state, build_transform(off_state, hdr=True, sdr_white_nits=resolve_white_level("Auto (Recommended)", detected_white)))),
+            "Off": (off_path, build_profile("HDR", off_state, build_transform(off_state, hdr=True))),
             "On": (on_path, build_profile("HDR", on_state, build_transform(on_state, hdr=True, sdr_white_nits=on_white))),
         }
         return payloads, on_option

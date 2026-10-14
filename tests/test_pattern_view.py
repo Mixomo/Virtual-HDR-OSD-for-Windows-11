@@ -87,7 +87,6 @@ class PatternViewTestCase(unittest.TestCase):
         win = PatternWindow(cap if cap is not None else capability(), 240.0, self.controls)
         # Legacy profile-adjustment scenarios opt in; production opens matching.
         from dataclasses import replace
-        win._context = replace(win._context, gamma_view="profile")
         win.resize(width, height)
         self.addCleanup(win.deleteLater)
         return win
@@ -202,7 +201,7 @@ class InputTests(PatternViewTestCase):
 
     def test_tab_cycles_controls_and_wraps(self):
         win = self.window()
-        win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key == "tone-tracking"))
+        win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key == "gamma-match"))
         self.assertEqual(win.active_control.label, "Gamma")
         self.press(win, Qt.Key.Key_Tab)
         self.assertEqual(win.active_control.label, "Contrast")
@@ -219,7 +218,7 @@ class InputTests(PatternViewTestCase):
 
     def test_adjustment_follows_the_selection_not_the_first_control(self):
         win = self.window()
-        win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key == "tone-tracking"))
+        win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key == "gamma-match"))
         self.press(win, Qt.Key.Key_Tab)
         self.press(win, Qt.Key.Key_Right)
         self.assertAlmostEqual(self.values["contrast"], 0.5)
@@ -446,7 +445,7 @@ class MarkerTests(PatternViewTestCase):
 
         markers = pattern_by_key("gamma-match").markers(context_for(capability(), 240.0))
         self.assertTrue(any(marker.target for marker in markers))
-        self.assertIn("TARGET", [marker.text for marker in markers])
+        self.assertIn("2.200 SDR TARGET", [marker.text for marker in markers])
 
     def test_markers_are_rendered_into_the_pattern(self):
         from sdr_hdr_profile_creator.pattern_view import render_markers
@@ -550,7 +549,7 @@ class GuidedSequenceTests(PatternViewTestCase):
     def test_enter_advances_a_step_that_measures_nothing(self):
         """Otherwise the run stalls on it with no way forward the overlay mentions."""
         win, _ = self.build()
-        for _ in MEASUREMENT_SEQUENCE:
+        for _ in GUIDED_SEQUENCE[:-1]:
             self.advance_step(win)
         self.assertEqual(win.pattern.key, "gamma-match")
         self.assertTrue(win.confirm_step())
@@ -707,7 +706,8 @@ class SummaryPlacementTests(PatternViewTestCase):
         for value in (0.004, 940.0, 612.0):
             win.set_probe(value)
             win.confirm_step()
-        win.confirm_step()   # the tone-tracking step records nothing
+        while win.guided_step is not None:
+            win.confirm_step()   # reviews record no luminance
         return win
 
     def ink_columns(self, win):
@@ -817,66 +817,6 @@ class LiveApplyTests(PatternViewTestCase):
         self.assertEqual(len(closed), 1)
 
 
-class LevelWalkingTests(PatternViewTestCase):
-    """Adaptation follows the brightest thing in view, so a near-threshold judgement has to
-    be made with one level on screen and nothing else competing for the eye."""
-
-    def tracking(self):
-        win = self.window()
-        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "tone-tracking"))
-        return win
-
-    def test_it_starts_in_the_middle_of_the_range(self):
-        """Neither end is a good place to begin: one blinds, the other shows nothing."""
-        from vhdr_color.patterns import tone_tracking_levels
-
-        win = self.tracking()
-        levels = tone_tracking_levels(win._context)
-        self.assertAlmostEqual(win.probe_nits, levels[len(levels) // 2], places=3)
-
-    def test_up_and_down_walk_the_levels(self):
-        win = self.tracking()
-        start = win.probe_nits
-        self.press(win, Qt.Key.Key_Up)
-        self.assertGreater(win.probe_nits, start)
-        self.press(win, Qt.Key.Key_Down)
-        self.assertAlmostEqual(win.probe_nits, start, places=3)
-
-    def test_the_walk_stops_at_both_ends_rather_than_wrapping(self):
-        from vhdr_color.patterns import tone_tracking_levels
-
-        win = self.tracking()
-        levels = tone_tracking_levels(win._context)
-        for _ in range(len(levels) + 5):
-            self.press(win, Qt.Key.Key_Down)
-        self.assertAlmostEqual(win.probe_nits, levels[0], places=3)
-        for _ in range(len(levels) + 5):
-            self.press(win, Qt.Key.Key_Up)
-        self.assertAlmostEqual(win.probe_nits, levels[-1], places=3)
-
-    def test_left_and_right_still_drive_the_sliders(self):
-        """Both jobs the step needs, without a mode to remember."""
-        win = self.tracking()
-        level = win.probe_nits
-        self.press(win, Qt.Key.Key_Right)
-        self.assertNotEqual(self.values["gamma"], 2.2)
-        self.assertAlmostEqual(win.probe_nits, level, places=3)
-
-    def test_a_pattern_with_no_levels_ignores_up_and_down_as_a_walk(self):
-        win = self.window()
-        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "colour-patches"))
-        before = win.probe_nits
-        self.press(win, Qt.Key.Key_Up)
-        self.assertAlmostEqual(win.probe_nits, before, places=6)
-
-    def test_the_overlay_offers_the_walk_only_where_it_exists(self):
-        plain, _, _ = render_overlay(
-            420, 700, pattern_view.pattern_by_key("colour-patches"),
-            context_for(capability(), 240.0), self.controls, 0)
-        stepped, _, _ = render_overlay(
-            420, 700, pattern_view.pattern_by_key("tone-tracking"),
-            context_for(capability(), 240.0), self.controls, 0)
-        self.assertNotEqual(plain, stepped)
 
 
 class ApplyFromTheSummaryTests(PatternViewTestCase):
@@ -998,7 +938,7 @@ class TypedEntryTests(PatternViewTestCase):
 
     def tracking(self):
         win = self.window()
-        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "tone-tracking"))
+        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "gamma-match"))
         return win
 
     def test_a_typed_value_is_applied_on_enter(self):
@@ -1082,9 +1022,9 @@ class TrackRenderingTests(PatternViewTestCase):
                               minimum=1.6, maximum=3.0)
         context = context_for(capability(), 240.0)
         left, _, _ = pattern_view.render_overlay_fitted(
-            461, 918, pattern_view.pattern_by_key("tone-tracking"), context, [low], 0)
+            461, 918, pattern_view.pattern_by_key("gamma-match"), context, [low], 0)
         right, _, _ = pattern_view.render_overlay_fitted(
-            461, 918, pattern_view.pattern_by_key("tone-tracking"), context, [high], 0)
+            461, 918, pattern_view.pattern_by_key("gamma-match"), context, [high], 0)
         self.assertNotEqual(left, right, "the track did not move with the value")
 
     def test_a_level_driven_pattern_draws_its_own_track(self):
@@ -1204,7 +1144,7 @@ class MouseDraggingTests(PatternViewTestCase):
 
     def tracking(self):
         win = self.window(width=1600, height=900)
-        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "tone-tracking"))
+        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "gamma-match"))
         win.build_frame()
         return win
 
@@ -1222,20 +1162,20 @@ class MouseDraggingTests(PatternViewTestCase):
         """Recomputing this layout in the view would drift from the one that drew it."""
         win = self.tracking()
         self.assertTrue(win._tracks)
-        key, _x, _y, width, _h = win._tracks[0]
+        key, _x, _y, width, _h = next(t for t in win._tracks if t[0]=="gamma")
         self.assertEqual(key, "gamma")
         self.assertGreater(width, 0)
 
     def test_dragging_sets_the_value_from_the_position(self):
         win = self.tracking()
-        key, track_x, _y, track_width, _h = win._tracks[0]
+        key, track_x, _y, track_width, _h = next(t for t in win._tracks if t[0]=="gamma")
         origin_x, _origin_y = win._overlay_origin
         win._set_from_track(key, origin_x + track_x + track_width * 0.75)
         self.assertAlmostEqual(self.held["gamma"], 1.6 + 0.75 * 1.4, places=2)
 
     def test_dragging_past_either_end_clamps(self):
         win = self.tracking()
-        key, track_x, _y, track_width, _h = win._tracks[0]
+        key, track_x, _y, track_width, _h = next(t for t in win._tracks if t[0]=="gamma")
         origin_x, _origin_y = win._overlay_origin
         win._set_from_track(key, origin_x + track_x + track_width * 5)
         self.assertAlmostEqual(self.held["gamma"], 3.0, places=3)
@@ -1272,7 +1212,7 @@ class LastStepGuidanceTests(PatternViewTestCase):
 
     def overlay_for(self, step, total):
         return render_overlay(
-            600, 1400, pattern_view.pattern_by_key("tone-tracking"),
+            600, 1400, pattern_view.pattern_by_key("gamma-match"),
             context_for(capability(), 240.0), self.controls, 0, step=step, total=total)
 
     def rendered_text_differs(self, a, b):
@@ -1567,7 +1507,7 @@ class DeclaredBesideMeasuredTests(PatternViewTestCase):
 
     def test_a_step_the_panel_says_nothing_about_shows_nothing(self):
         win = self.view()
-        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "tone-tracking"))
+        win.select_pattern(next(i for i, p in enumerate(PATTERNS) if p.key == "gamma-match"))
         self.assertIsNone(win._declared_for(win.pattern))
 
     def test_no_declaration_at_all_shows_nothing(self):
@@ -1793,8 +1733,8 @@ class PatternKeyHintTests(unittest.TestCase):
         """The summary page said 1-9 while 0 opened the tenth pattern."""
         from sdr_hdr_profile_creator.pattern_view import pattern_keys
 
-        self.assertEqual(10, len(PATTERNS))
-        self.assertEqual("1-9, 0", pattern_keys())
+        self.assertEqual(9, len(PATTERNS))
+        self.assertEqual("1-9", pattern_keys())
 
     def test_every_hint_uses_it(self):
         source = Path(pattern_view.__file__).read_text(encoding="utf-8")
@@ -1826,7 +1766,7 @@ class PatternWorkflowIsolationTests(PatternViewTestCase):
 
     def test_gamma_only_adjusts_gamma_and_does_not_inherit_contrast_selection(self):
         win = self.window()
-        self.choose(win, "tone-tracking")
+        self.choose(win, "gamma-match")
         win.next_control()
         self.assertEqual(win.active_control.key, "contrast")
         self.choose(win, "gamma-match")
@@ -1887,14 +1827,13 @@ class PatternWorkflowIsolationTests(PatternViewTestCase):
 
 
 class PatternReadingBoundsTests(PatternViewTestCase):
-    def test_invalid_peak_is_not_reported_as_a_different_clamped_value(self):
+    def test_low_white_level_is_recorded_without_an_artificial_80_nit_floor(self):
         recorded=[]
-        win=PatternWindow(capability(),240,measure=lambda *r:recorded.append(r),guided=False)
+        win=PatternWindow(capability(),240,measure=lambda *r:recorded.append(r),guided=True)
         self.addCleanup(win.deleteLater);win.resize(800,600)
         win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key=="peak-white"))
         win.set_probe(20)
-        self.assertFalse(win.accept_measurement());self.assertEqual(recorded,[])
-        self.assertIn("nothing was recorded",win._feedback_text)
+        self.assertTrue(win.accept_measurement());self.assertEqual(recorded,[("peak-white",20)])
 
     def test_infinite_typed_level_preserves_the_pattern_value(self):
         win=self.window();win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key=="solid-patch"))
@@ -1904,75 +1843,55 @@ class PatternReadingBoundsTests(PatternViewTestCase):
 
 
 class BrowserReferenceInputTests(PatternViewTestCase):
-    def test_reference_edits_never_nudge_editor_controls(self):
+    def test_only_profile_controls_are_editable_and_chart_is_fixed(self):
         win=self.window()
         win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key=="gamma-match"))
-        before=dict(self.values)
-        self.press(win,Qt.Key.Key_G)
-        self.assertEqual(win.active_control.key,"reference_gamma")
+        self.assertEqual([c.key for c in win.available_controls],["gamma","contrast"])
         frame=win.build_frame()
         self.press(win,Qt.Key.Key_Right)
-        self.assertEqual(self.values,before)
-        self.assertAlmostEqual(win._context.reference_gamma,2.205)
-        self.assertNotEqual(frame,win.build_frame())
-        self.press(win,Qt.Key.Key_G)
-        self.assertEqual(win.active_control.key,"reference_gamma")
-        self.press(win,Qt.Key.Key_G)
-        self.assertEqual(win.active_control.key,"gamma")
-        self.assertEqual(self.values,before)
+        self.assertGreater(self.values["gamma"],2.2)
+        self.assertEqual(frame,win.build_frame())
 
-    def test_average_preview_toggle_does_not_change_gamma_or_profile(self):
+    def test_retired_view_and_preview_keys_cannot_change_reference(self):
         win=self.window()
         win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key=="gamma-match"))
-        self.press(win,Qt.Key.Key_G)
-        before=dict(self.values)
-        gamma=win._context.reference_gamma
-        frame=win.build_frame()
-        self.press(win,Qt.Key.Key_P)
-        self.assertTrue(win._context.gamma_average_preview)
-        self.assertNotEqual(frame,win.build_frame())
-        self.assertEqual(self.values,before)
-        self.assertEqual(win._context.reference_gamma,gamma)
-        self.press(win,Qt.Key.Key_P)
-        self.assertFalse(win._context.gamma_average_preview)
+        before=dict(self.values);frame=win.build_frame()
+        for key in (Qt.Key.Key_G,Qt.Key.Key_P): self.press(win,key)
+        self.assertEqual(self.values,before);self.assertEqual(frame,win.build_frame())
 
-    def test_sdr_can_read_gamma_without_enabling_profile_editing(self):
+    def test_sdr_chart_has_no_editable_reference_or_profile_controls(self):
         win=self.window(capability(color_space=DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709))
         win.select_pattern(next(i for i,p in enumerate(PATTERNS) if p.key=="gamma-match"))
-        self.assertEqual(win.available_controls,[])
-        self.press(win,Qt.Key.Key_G)
-        self.assertEqual(win.active_control.key,"reference_gamma")
-        self.press(win,Qt.Key.Key_Right)
-        self.assertEqual(self.values,{"gamma":2.2,"contrast":0.0})
+        before=dict(self.values)
+        for key in (Qt.Key.Key_G,Qt.Key.Key_P,Qt.Key.Key_Right):self.press(win,key)
+        self.assertEqual(win.available_controls,[]);self.assertEqual(self.values,before)
 
 
 class MatchingFirstWorkflowTests(PatternViewTestCase):
-    def test_production_opens_matching_and_has_no_followup_tone_step(self):
-        win=PatternWindow(capability(),240,self.controls,measure=lambda key,nits: None)
+    def test_guided_gamma_opens_fixed_chart_and_edits_real_profile_only(self):
+        win=PatternWindow(capability(),240,self.controls,measure=lambda key,nits:None)
         self.addCleanup(win.deleteLater)
-        self.assertEqual(win._context.gamma_view,"match")
         win._apply_guided_step()
-        while win.guided_step is not None and win.pattern.key!="gamma-match":
-            win.skip_step()
-        self.assertEqual(win.active_control.key,"reference_gamma")
+        while win.guided_step is not None and win.pattern.key!="gamma-match":win.skip_step()
+        self.assertEqual(win.active_control.key,"gamma")
         self.assertIn("contrast",[c.key for c in win.available_controls])
-        win.confirm_step()
-        self.assertTrue(win._complete)
-        self.assertIsNone(win.guided_step)
+        self.assertFalse(any(c.key=="reference_gamma" for c in win.available_controls))
+        self.assertNotIn("tone-tracking",[p.key for p in PATTERNS])
+        self.assertEqual(len(GUIDED_SEQUENCE),4)
+        win.confirm_step();self.assertTrue(win._complete);self.assertIsNone(win.guided_step)
 
 
 class DesktopWhiteAnchorTests(PatternViewTestCase):
     def test_matching_updates_white_even_when_pure_power_fix_is_off(self):
         white=[240.0]
         win=PatternWindow(capability(),240,self.controls,
-                          gamma_white=lambda: None,desktop_white=lambda:white[0])
+                          desktop_white=lambda:white[0])
         self.addCleanup(win.deleteLater)
         self.assertFalse(win._sync_gamma_range())
         before=win.build_frame()
         white[0]=320
         self.assertTrue(win._sync_gamma_range())
         self.assertEqual(win._context.sdr_white_nits,320)
-        self.assertIsNone(win._context.gamma_white_nits)
         self.assertNotEqual(before,win.build_frame())
 
 
@@ -1986,6 +1905,210 @@ class FullFrameAcceptanceTests(PatternViewTestCase):
         self.assertNotIn("full-frame-white",win.accepted)
         self.assertIn("refused",win._notice)
 
+
+
+
+class GuidedNoticeTests(PatternViewTestCase):
+    def start_guide(self):
+        win=PatternWindow(capability(),240,self.controls,measure=lambda *_:None)
+        self.addCleanup(win.deleteLater)
+        with mock.patch.object(pattern_view,"HdrSurface"):
+            self.assertTrue(win.begin())
+        return win
+
+    def test_intro_requires_enter_without_recording_or_changing_controls(self):
+        win=self.start_guide()
+        self.assertEqual(win._guide_screen,"intro")
+        self.assertIn("Calibrate Display",win.guide_message()[1])
+        self.assertEqual(win.available_controls,[])
+        before=dict(self.values)
+        self.assertFalse(win.skip_step())
+        self.assertFalse(win.accept_measurement())
+        self.press(win,Qt.Key.Key_Right)
+        self.assertEqual(self.values,before)
+        self.press(win,Qt.Key.Key_Return)
+        self.assertIsNone(win._guide_screen)
+        self.assertEqual(win.pattern.key,"black-level")
+        self.assertEqual(win.accepted,{})
+
+    def test_full_white_warning_is_dark_until_enter_and_skip_preserves_value(self):
+        win=self.start_guide();win.confirm_step()
+        win.skip_step();win.confirm_step();win.skip_step()
+        self.assertEqual(win._guide_screen,"full-frame")
+        self.assertEqual(win.pattern.key,"full-frame-white")
+        self.assertIn("ABL",win.guide_message()[1])
+        self.assertIn("MiniLED",win.guide_message()[1])
+        self.assertIn("partly close",win.guide_message()[1])
+        frame=win.build_frame();self.assertEqual(win._tracks,[])
+        # A corner stays black rather than presenting full-screen white behind the notice.
+        self.assertEqual(struct.unpack_from("<4e",frame,0)[:3],(0,0,0))
+        self.assertFalse(win.accept_measurement())
+        self.press(win,Qt.Key.Key_N)
+        self.assertEqual(win.pattern.key,"gamma-match")
+        self.assertIsNone(win._guide_screen)
+        self.assertIn("full-frame-white",win.skipped)
+        self.assertNotIn("full-frame-white",win.accepted)
+
+    def test_holding_enter_cannot_bypass_full_white_warning(self):
+        win=self.start_guide();win.confirm_step();win.skip_step();win.confirm_step();win.skip_step()
+        event=QKeyEvent(QKeyEvent.Type.KeyPress,Qt.Key.Key_Return,Qt.KeyboardModifier.NoModifier,"",True)
+        win.keyPressEvent(event)
+        self.assertEqual(win._guide_screen,"full-frame")
+
+    def test_enter_opens_full_white_without_recording_and_free_mode_has_no_intro(self):
+        win=self.start_guide();win.confirm_step();win.skip_step();win.confirm_step();win.skip_step()
+        before=win.probe_nits
+        self.press(win,Qt.Key.Key_Return)
+        self.assertIsNone(win._guide_screen)
+        self.assertEqual(win.pattern.key,"full-frame-white")
+        self.assertEqual(win.probe_nits,before)
+        self.assertEqual(win.accepted,{})
+        win=self.window()
+        with mock.patch.object(pattern_view,"HdrSurface"):win.begin()
+        self.assertIsNone(win._guide_screen)
+
+
+class GammaWhiteLimitNoticeTests(PatternViewTestCase):
+    def test_render_warns_about_clipping_instead_of_substituting_desktop_white(self):
+        from PySide6.QtGui import QPainter
+        from dataclasses import replace
+        captured=[]
+        class RecordingPainter(QPainter):
+            def boundingRect(self,*args):
+                if isinstance(args[-1],str):captured.append(args[-1])
+                return super().boundingRect(*args)
+        pattern=pattern_view.pattern_by_key("gamma-match")
+        context=replace(context_for(capability(),480),peak_nits=300)
+        with mock.patch.object(pattern_view,"QPainter",RecordingPainter):
+            pattern_view.render_overlay_fitted(460,900,pattern,context,self.controls,0)
+        self.assertTrue(any("SDR white exceeds the reported peak" in text for text in captured))
+        self.assertTrue(any("clipping or tone mapping" in text for text in captured))
+        captured.clear()
+        with mock.patch.object(pattern_view,"QPainter",RecordingPainter):
+            pattern_view.render_overlay_fitted(460,900,pattern,replace(context,peak_nits=1000),self.controls,0)
+        self.assertFalse(any("SDR white exceeds the reported peak" in text for text in captured))
+
+
+class EditableGammaGoalTests(PatternViewTestCase):
+    def test_target_arrows_change_only_pattern_and_home_resets(self):
+        win=self.window();win.select_pattern(0)
+        before=dict(self.values);frame=win.build_frame()
+        self.press(win,Qt.Key.Key_Up)
+        self.assertEqual(win._context.gamma_target,2.3)
+        self.assertEqual(self.values,before)
+        self.assertNotEqual(frame,win.build_frame())
+        self.press(win,Qt.Key.Key_Home)
+        self.assertEqual(win._context.gamma_target,2.2)
+        self.assertEqual(win.build_frame(),frame)
+        self.press(win,Qt.Key.Key_Left)
+        self.assertEqual(win._context.gamma_target,2.2)
+        self.assertLess(self.values["gamma"],before["gamma"])
+
+    def test_goal_clamps_and_survives_free_browsing(self):
+        from dataclasses import replace
+        win=self.window();win.select_pattern(0)
+        win._context=replace(win._context,gamma_target=3)
+        self.press(win,Qt.Key.Key_Up);self.assertEqual(win._context.gamma_target,3)
+        win._context=replace(win._context,gamma_target=1.6)
+        self.press(win,Qt.Key.Key_Down);self.assertEqual(win._context.gamma_target,1.6)
+        win.select_pattern(1);win.select_pattern(0)
+        self.assertEqual(win._context.gamma_target,1.6)
+
+    def test_goal_can_be_selected_in_guided_gamma(self):
+        win=PatternWindow(capability(),240,self.controls,measure=lambda *_:None)
+        self.addCleanup(win.deleteLater);win._apply_guided_step()
+        while win.pattern.key!="gamma-match":win.skip_step()
+        self.press(win,Qt.Key.Key_Down)
+        self.assertEqual(win._context.gamma_target,2.1)
+        self.assertEqual(win.accepted,{})
+
+
+class PeakWarningAndGammaSliderTests(PatternViewTestCase):
+    start_guide=GuidedNoticeTests.start_guide
+    def test_peak_warning_stays_dark_until_enter_and_n_keeps_reading(self):
+        win=self.start_guide();win.confirm_step();win.skip_step()
+        self.assertEqual(win._guide_screen,"peak-white")
+        self.assertIn("partly close",win.guide_message()[1])
+        frame=win.build_frame()
+        self.assertEqual(struct.unpack_from("<4e",frame,0)[:3],(0,0,0))
+        self.assertFalse(win.accept_measurement())
+        self.press(win,Qt.Key.Key_N)
+        self.assertIn("peak-white",win.skipped)
+        self.assertNotIn("peak-white",win.accepted)
+        self.assertEqual(win._guide_screen,"full-frame")
+
+    def test_gamma_goal_slider_snaps_without_editing_profile(self):
+        win=self.window();win.select_pattern(0);win.refresh()
+        before=dict(self.values)
+        entry=next(t for t in win._tracks if t[0]==pattern_view.GAMMA_TARGET_TRACK_KEY)
+        key,x,y,width,height=entry
+        origin_x,_=win._overlay_origin
+        for fraction,expected in ((0,1.6),(.49,2.3),(.8,2.7),(1,3.0)):
+            win._set_from_track(key,origin_x+x+width*fraction)
+            self.assertEqual(win._context.gamma_target,expected)
+            self.assertEqual(self.values,before)
+        self.press(win,Qt.Key.Key_Home)
+        self.assertEqual(win._context.gamma_target,2.2)
+
+
+class WhiteEnterContinuationTests(PatternViewTestCase):
+    def guide(self):
+        recorded=[]
+        win=PatternWindow(capability(),240,measure=lambda *reading:recorded.append(reading))
+        self.addCleanup(win.deleteLater);win._apply_guided_step();win.skip_step()
+        return win,recorded
+
+    def test_low_peak_and_full_above_peak_do_not_block_enter(self):
+        win,recorded=self.guide();win.set_probe(20)
+        self.assertTrue(win.confirm_step())
+        self.assertEqual(win.pattern.key,"full-frame-white")
+        win.set_probe(2000)
+        self.assertTrue(win.confirm_step())
+        self.assertEqual(win.pattern.key,"gamma-match")
+        self.assertEqual(recorded,[("peak-white",20),("full-frame-white",2000)])
+        self.assertEqual(win.skipped,{"black-level"})
+
+    def test_enter_accepts_current_white_level_even_without_moving_it(self):
+        win,recorded=self.guide()
+        self.assertTrue(win.confirm_step())
+        self.assertEqual(win.pattern.key,"full-frame-white")
+        self.assertTrue(win.confirm_step())
+        self.assertEqual(win.pattern.key,"gamma-match")
+        self.assertEqual([key for key,value in recorded],["peak-white","full-frame-white"])
+
+
+class ReadOnlyDiagnosticTests(PatternViewTestCase):
+    def test_catalog_excludes_guided_patterns_and_has_no_editable_levels(self):
+        from vhdr_color.patterns import DIAGNOSTIC_PATTERNS
+        self.assertTrue(set(GUIDED_SEQUENCE).isdisjoint(p.key for p in DIAGNOSTIC_PATTERNS))
+        self.assertTrue(all(not p.records and not p.level_driven and p.levels is None for p in DIAGNOSTIC_PATTERNS))
+
+    def test_diagnostic_input_and_callbacks_cannot_edit_record_or_apply(self):
+        recorded=[];applied=[]
+        win=PatternWindow(capability(),240,self.controls,guided=False,
+                          measure=lambda *r:recorded.append(r),apply=lambda:applied.append(True))
+        self.addCleanup(win.deleteLater);win.resize(800,600);win.refresh()
+        before=dict(self.values);context=win._context
+        self.assertEqual(win.available_controls,[]);self.assertEqual(win._tracks,[])
+        for key in (Qt.Key.Key_Tab,Qt.Key.Key_E,Qt.Key.Key_Return,Qt.Key.Key_S,Qt.Key.Key_N,
+                    Qt.Key.Key_Up,Qt.Key.Key_Down,Qt.Key.Key_Home):self.press(win,key)
+        win.adjust(1);win.set_probe(1086);win.step_probe(1);win.set_gamma_target(3)
+        self.assertFalse(win.begin_edit());self.assertFalse(win.accept_measurement())
+        self.assertFalse(win.apply_measurements());self.assertFalse(win.confirm_step())
+        self.assertEqual(self.values,before);self.assertEqual(win._context,context)
+        self.assertEqual(recorded,[]);self.assertEqual(applied,[]);self.assertEqual(win.accepted,{})
+        self.assertFalse(win._showing_summary)
+
+    def test_navigation_reaches_only_diagnostics_with_no_sliders(self):
+        from vhdr_color.patterns import DIAGNOSTIC_PATTERNS
+        win=PatternWindow(capability(),240,self.controls,guided=False)
+        self.addCleanup(win.deleteLater);win.resize(800,600)
+        for i,p in enumerate(DIAGNOSTIC_PATTERNS):
+            self.press(win,Qt.Key.Key_1+i)
+            self.assertEqual(win.pattern.key,p.key)
+            self.assertEqual(win._tracks,[])
+        self.press(win,Qt.Key.Key_Right)
+        self.assertEqual(win.pattern.key,DIAGNOSTIC_PATTERNS[0].key)
 
 if __name__ == "__main__":
     unittest.main()

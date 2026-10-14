@@ -2,6 +2,30 @@
 
 [Back to the user guide](README.md)
 
+## 2026-10-13 - Gamma compatibility, guided calibration and diagnostics
+
+- Restored hotfix-3 tone processing: the optional fixed SDR-to-gamma-2.2 correction
+  precedes the same Gamma, Contrast and Midtone Brightness adjustments in both
+  Off/On profiles. Equal brightness trims no longer change behavior when toggling.
+- Kept a four-step guide: black, central white, full-frame white and SDR gamma.
+  Added an introduction about reported panel data and dark Enter/N warning screens
+  before both white patterns. Holding Enter cannot bypass a warning.
+- Manual white thresholds now save independently of each other and the panel's
+  declaration, without the old 80-nit floor. Values in the 0-10,000-nit PQ domain
+  survive state reload and ICC roundtrips. Full-frame visual clipping remains
+  distinct from instrument-measured sustained luminance.
+- Recreated classic Windows-style gamma matching with nine feathered dots over
+  horizontal native-pixel lines. The separate pattern-goal slider and Up/Down
+  select 1.6-3.0 in round 0.1 steps; Home restores 2.2. Profile controls remain
+  independent. Piecewise sRGB is decoded once at the actual Windows SDR white.
+- Increased pattern UI brightness to 80 nits for controls/text, 48 nits for labels
+  and 120 nits for introduction, warning and results screens.
+- Replaced free browsing with **Diagnostic patterns**: nine fixed inspection views,
+  excluding guided targets. No sliders, editing, recording or Apply action. Live
+  Apply pauses without changing its saved preference and restores on exit.
+- Retained the existing hotkeys and bounded watchdog recovery. Added regressions
+  for legacy tone vectors, white-threshold persistence and diagnostic isolation.
+
 ## 2026-10-12 - Fork integration and follow-up refinements
 
 This entry groups the fork integration and the adjustments made afterwards.

@@ -46,6 +46,7 @@ docs/audits/
 *.tmp
 *.bak
 *.old
+/tmp/
 
 # Local copies of user calibration state
 /last_gui_state.json
