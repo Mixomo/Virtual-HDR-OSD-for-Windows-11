@@ -245,7 +245,13 @@ def _apply_profile_id(profile: bytes) -> bytes:
     return bytes(result)
 
 
-def build_profile(mode: DisplayMode, state: ModeState, transform: CalibrationTransform) -> bytes:
+def build_profile(
+    mode: DisplayMode,
+    state: ModeState,
+    transform: CalibrationTransform,
+    *,
+    exported: bool = False,
+) -> bytes:
     hdr = mode == "HDR"
     red_xyz, green_xyz, blue_xyz = _display_primaries_xyz(mode, state)
     if hdr:
@@ -265,7 +271,15 @@ def build_profile(mode: DisplayMode, state: ModeState, transform: CalibrationTra
         chad = D65_TO_D50_CHAD
     state_payload = _text_type(
         json.dumps(
-            {"schema": "sdr-hdr-profile-state-v2", "mode": mode, "state": state.to_dict()},
+            {
+                "schema": "sdr-hdr-profile-state-v2",
+                "mode": mode,
+                # "export" marks a copy the user saved on purpose, as opposed to the
+                # live working profile Apply rewrites. Pickers list the former and
+                # hide the latter; see is_exported_profile.
+                **({"role": "export"} if exported else {}),
+                "state": state.to_dict(),
+            },
             separators=(",", ":"),
         )
     )
@@ -442,6 +456,21 @@ def is_app_generated(path: Path) -> bool:
     if count > 256 or 132 + count * 12 > len(head):
         return False
     return any(head[132 + index * 12 : 136 + index * 12] == b"sdhs" for index in range(count))
+
+
+def is_exported_profile(path: Path) -> bool:
+    """True for a profile the user saved with Export, rather than a live working profile.
+
+    Both carry the ``sdhs`` tag, so ``is_app_generated`` cannot tell them apart. An
+    export is a preset the user wants to pick again from the HDR list; hiding it with
+    the working profiles left Import as the only way back to it.
+    """
+    try:
+        data = path.read_bytes()
+        embedded = _parse_text(_read_tags(data).get(b"sdhs", b""))
+        return bool(embedded) and json.loads(embedded).get("role") == "export"
+    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
+        return False
 
 
 def _read_tags(data: bytes, *, strict: bool = False) -> dict[bytes, bytes]:

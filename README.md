@@ -61,7 +61,7 @@ the app uses an existing profile and restores it when needed.
 | **Revert** | Reload the base profile without your edits. |
 | **Reset Sliders** | Reset adjustments and remove the paired measured greyscale correction. |
 | **Restore Windows Profile** | Return to the previous Windows profile. This is separate from uninstalling the watchdog. |
-| **Export Copy…** | Save a copy without replacing the base file. |
+| **Export Copy…** | Save a named copy without replacing the base file. Saved in the Windows colour folder, it is listed in the HDR profile picker. |
 
 Gamma, Midtone Brightness and Contrast adjust tone. White Balance Temperature and
 Green-Magenta Tint adjust the white point. Color Saturation and RGB Fine Balance
@@ -237,6 +237,9 @@ does not uninstall the watchdog.
 | Problem | Try this |
 | --- | --- |
 | Edits are not visible. | Check the selected monitor, HDR mode, Live Apply and applied-profile status. Then use Apply Edits or Reapply. |
+| Apply reports `HRESULT 0x80070002`. | Update to 2.0.1 HOTFIX or later. Earlier builds failed on displays with no HDR profile yet. |
+| An exported profile is missing from the HDR picker. | Save it in the Windows colour folder. Exports from before 2.0.1 HOTFIX must be exported again or opened with Import…. |
+| Changing Black Level shows no difference. | Expected: it is profile metadata for apps that tone-map, not a desktop black lift. |
 | SDR colours look wrong after leaving HDR. | Check the SDR picker, use Alt+3, and reinstall the updated watchdog if necessary. |
 | A hotkey is unavailable. | Check whether another app owns it. The GUI can share runtime state with its watchdog. |
 | Patterns pause or refuse a reading. | Check that the same display is connected and HDR is still on; reopen the session. |
@@ -254,7 +257,14 @@ geometry, gamut limits, profile recovery, startup fallback, diagnostics and buil
 
 ## Changelog
 
-### 2026-10-13 - Current update
+### 2026-11-20 - 2.0.1 HOTFIX
+
+- Fixed `HRESULT 0x80070002` when applying to a display with no HDR profile yet (#4).
+- Exported profiles now appear in the HDR picker, carry their filename as their
+  name, and Export remembers its folder (#5).
+- Clarified that Black Level is profile metadata, not a desktop black lift.
+
+### 2026-10-13 - Previous update
 
 - Restored hotfix-3 tone behavior and consistent Off/On brightness adjustments.
 - Added white-pattern warnings and independent manual luminance values in the guide.

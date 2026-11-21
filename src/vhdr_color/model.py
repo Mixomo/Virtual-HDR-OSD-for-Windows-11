@@ -324,6 +324,9 @@ class ApplicationState:
     # only the user knows about and PATH is often not set. Empty means "look in
     # PATH and the usual places".
     argyll_path: str = ""
+    # Folder the last profile was exported to, so Export opens there again instead of
+    # making the user navigate back to the colour directory for every file.
+    last_export_dir: str = ""
 
     @classmethod
     def neutral(cls) -> "ApplicationState":
@@ -355,6 +358,7 @@ class ApplicationState:
                 key: binding.to_dict() for key, binding in self.display_bindings.items()
             },
             "argyll_path": self.argyll_path,
+            "last_export_dir": self.last_export_dir,
         }
 
     @classmethod
@@ -381,6 +385,7 @@ class ApplicationState:
             hdr=ModeState.from_dict(data.get("hdr"), "HDR"),
             display_bindings=cls._bindings_from_dict(data.get("display_bindings")),
             argyll_path=_text(data.get("argyll_path")),
+            last_export_dir=_text(data.get("last_export_dir")),
         )
 
     @staticmethod

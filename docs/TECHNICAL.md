@@ -15,6 +15,15 @@ Edits are written to consistently named working profiles, leaving the base file
 untouched. Matching file contents skip reinstallation, but the display association
 is checked regardless. ICC tags that belong together are handled as a group.
 
+A profile saved with **Export Copy…** carries `"role": "export"` in its embedded
+state tag. Both exports and working profiles carry that tag, so the role is what
+lets the HDR picker list exports while still hiding working profiles. An export's
+ICC description is its filename stem.
+
+`ColorProfileGetDisplayDefault` returns `0x80070002`, `0x80070003` or `0x80070490`
+when no profile is associated with the display for that mode. The app treats these
+as "no default", not as a failure, and retries the read-back after setting a default.
+
 SDR and HDR use separate Windows profile association subtypes. The app only selects
 an existing SDR profile; it does not generate one or reload another app's VCGT curves.
 

@@ -2,6 +2,30 @@
 
 [Back to the user guide](README.md)
 
+## 2026-11-20 - 2.0.1 HOTFIX
+
+Fixes [#4](https://github.com/Mixomo/Virtual-HDR-OSD-for-Windows-11/issues/4) and
+[#5](https://github.com/Mixomo/Virtual-HDR-OSD-for-Windows-11/issues/5).
+
+- **Calibrate Display, Apply Edits and the Edits & Apply step no longer fail with
+  `ColorProfileGetDisplayDefault failed: HRESULT 0x80070002`.** Windows returns that
+  code when a display has no HDR profile associated yet. It is now treated as "no
+  profile", so the first profile can be applied. Reading back the new association
+  also retries briefly, because Windows can take a moment to commit it.
+- **Exported profiles appear in the HDR profile picker.** **Export Copy…** marks its
+  file as a user preset, separate from the working profiles Apply rewrites. Profiles
+  saved to the Windows colour folder are listed at once, and picking one loads its
+  settings. Exports made before this hotfix are still hidden; export them again or
+  open them with **Import…**.
+- **Exported profiles carry their own name.** The ICC description follows the
+  filename, so Windows Color Management no longer lists every export as
+  "Virtual HDR OSD".
+- **Export Copy… remembers its folder.** It opens in the last folder used, or the
+  Windows colour folder the first time.
+- **The Black Level tooltip explains what the value does.** It is written to the
+  profile's MHC2 minimum luminance for apps and games that tone-map to it. It does
+  not lift or lower black on the desktop.
+
 ## 2026-10-13 - Gamma compatibility, guided calibration and diagnostics
 
 - Restored hotfix-3 tone processing: the optional fixed SDR-to-gamma-2.2 correction

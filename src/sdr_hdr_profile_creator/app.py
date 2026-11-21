@@ -75,6 +75,7 @@ from vhdr_color.icc import (
     content_digest,
     import_profile,
     is_app_generated,
+    is_exported_profile,
     primaries_disagree,
     profile_primaries_xy,
 )
@@ -993,7 +994,10 @@ class MainWindow(FluentWidget):
         luminance_card.add_widget(self._make_control(ControlSpec(
             "minimum_luminance_nits", "Black Level", 0.0, 100.0, 0.0, 0.0001, " nits", 4, "panel",
             "How much light the display emits at black. Near zero on an OLED, so the "
-            "slider is coarse here by nature — type the value instead."
+            "slider is coarse here by nature — type the value instead.\n\n"
+            "This records the panel's black in the profile (MHC2 minimum luminance) for "
+            "apps and games that tone-map to it. It does not raise or lower black on the "
+            "desktop, so changing it shows no visible difference by itself."
         )))
         page.addWidget(luminance_card)
 
@@ -2424,7 +2428,9 @@ class MainWindow(FluentWidget):
         cached = self._generated_profile_cache.get(path.name)
         if cached is not None and cached[0] == stamp.st_mtime_ns and cached[1] == stamp.st_size:
             return cached[2]
-        generated = is_app_generated(path)
+        # A user's export is ours too, but it is a preset, not a working profile: it is
+        # never rewritten by Apply, so it is safe to list and to pin.
+        generated = is_app_generated(path) and not is_exported_profile(path)
         self._generated_profile_cache[path.name] = (stamp.st_mtime_ns, stamp.st_size, generated)
         return generated
 
@@ -4532,7 +4538,11 @@ class MainWindow(FluentWidget):
         previous_profile = ""
 
         try:
-            previous_profile = get_default_profile(display, "HDR")
+            try:
+                previous_profile = get_default_profile(display, "HDR")
+            except NoDefaultProfile:
+                # A display with no HDR profile yet: nothing to roll back to.
+                previous_profile = ""
             payloads, on_option = self._build_working_payloads(display)
             pending = {
                 label
@@ -5427,10 +5437,13 @@ class MainWindow(FluentWidget):
     def _export_profile(self) -> None:
         state = self.state.hdr
         default_name = f"{self._safe_stem(state.profile_name, 'Virtual_HDR_OSD')}_HDR.icm"
+        start_dir = Path(self.state.last_export_dir) if self.state.last_export_dir else None
+        if start_dir is None or not start_dir.is_dir():
+            start_dir = Path(self._windows_color_directory_or_home())
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Export ICC / ICM Profile",
-            str(Path.home() / default_name),
+            str(start_dir / default_name),
             "Color Profiles (*.icm *.icc)",
         )
         if not filename:
@@ -5440,13 +5453,37 @@ class MainWindow(FluentWidget):
             path = path.with_suffix(".icm")
         try:
             transform = build_transform(state, hdr=True, sdr_white_nits=self._tone_reference_white_nits())
-            path.write_bytes(build_profile("HDR", state, transform))
-            self._set_status(f"Exported HDR profile to {path}", "ok")
+            # The ICC description is the name Windows Color Management shows, so it
+            # follows the filename. Without this every export was listed there as
+            # "Virtual HDR OSD", and two exports could not be told apart.
+            export_state = ModeState.from_dict(state.to_dict(), "HDR")
+            export_state.profile_name = path.stem
+            path.write_bytes(build_profile("HDR", export_state, transform, exported=True))
         except Exception as exc:
             QMessageBox.critical(
                 self, "Export Profile",
                 f"Could not export the profile:\n\n{exc}\n\nChoose another folder, for example "
                 "Documents, and try again.",
+            )
+            return
+        self.state.last_export_dir = str(path.parent)
+        self._save_state_soon()
+        in_color_dir = False
+        try:
+            in_color_dir = path.parent.resolve() == get_color_directory().resolve()
+        except Exception:
+            _log.debug("Could not compare against the Windows colour directory", exc_info=True)
+        if in_color_dir:
+            # Show it in the HDR profile list straight away.
+            self._populate_profile_pickers()
+            self._set_status(
+                f"Exported HDR profile to {path}. It is now listed in the HDR profile picker.", "ok"
+            )
+        else:
+            self._set_status(
+                f"Exported HDR profile to {path}. Save it in the Windows colour folder to have "
+                "it listed in the HDR profile picker.",
+                "ok",
             )
 
     # ----------------------------------------------------------------------------------

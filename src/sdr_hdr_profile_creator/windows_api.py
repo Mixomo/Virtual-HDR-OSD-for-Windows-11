@@ -636,6 +636,31 @@ def overwrite_installed_profile(profile_name: str, payload: bytes) -> bool:
         return False
 
 
+# HRESULT_FROM_WIN32 of ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND and ERROR_NOT_FOUND:
+# what ColorProfileGetDisplayDefault returns when no profile is associated.
+_NO_DEFAULT_HRESULTS = frozenset({0x80070002, 0x80070003, 0x80070490})
+
+
+def _read_back_default(display: DisplayInfo, mode: str, expected: str) -> str:
+    """Read the default back after setting it, allowing Windows a moment to commit it.
+
+    The association is written asynchronously on some builds, so an immediate read can
+    still report no default -- or the previous one -- for a few tens of milliseconds.
+    """
+    active = ""
+    for attempt in range(6):
+        try:
+            active = get_default_profile(display, mode)
+        except NoDefaultProfile:
+            active = ""
+        if Path(active).name.casefold() == Path(expected).name.casefold():
+            return active
+        time.sleep(0.05 * (attempt + 1))
+    raise WindowsColorError(
+        f"Windows read-back mismatch: expected {Path(expected).name}, received {active or '<empty>'}"
+    )
+
+
 def get_default_profile(display: DisplayInfo, mode: str) -> str:
     if not IS_WINDOWS or not hasattr(mscms, "ColorProfileGetDisplayDefault"):
         raise WindowsColorError("Default-profile read-back is unavailable on this Windows build")
@@ -651,6 +676,14 @@ def get_default_profile(display: DisplayInfo, mode: str) -> str:
     )
     try:
         if result < 0:
+            if ctypes.c_uint32(result).value in _NO_DEFAULT_HRESULTS:
+                # Not a failure: the display simply has no profile associated for this
+                # mode yet -- the normal state of an HDR display nobody has profiled.
+                # Reporting it as an error made Apply and Calibrate fail outright on
+                # exactly the displays that most need a first profile.
+                raise NoDefaultProfile(
+                    f"No default {mode} profile is associated with this display"
+                )
             raise _hresult_error("ColorProfileGetDisplayDefault failed", result)
         if not allocated.value:
             raise NoDefaultProfile("Windows returned an empty default profile name")
@@ -686,12 +719,7 @@ def reapply_existing_default_profile(display: DisplayInfo, mode: str, profile_na
     )
     if result < 0:
         raise _hresult_error("ColorProfileSetDisplayDefaultAssociation failed", result)
-    active = get_default_profile(display, mode)
-    if Path(active).name.casefold() != Path(profile_name).name.casefold():
-        raise WindowsColorError(
-            f"Windows read-back mismatch: expected {Path(profile_name).name}, received {active or '<empty>'}"
-        )
-    return active
+    return _read_back_default(display, mode, profile_name)
 
 
 def associate_profile(profile_name: str, display: DisplayInfo, mode: str) -> None:
@@ -761,11 +789,7 @@ def install_and_associate_profile(profile_path: Path, display: DisplayInfo, mode
             if result < 0:
                 raise _hresult_error("ColorProfileSetDisplayDefaultAssociation failed", result)
 
-            active = get_default_profile(display, mode)
-            if Path(active).name.casefold() != profile_name.casefold():
-                raise WindowsColorError(
-                    f"Windows read-back mismatch: expected {profile_name}, received {active or '<empty>'}"
-                )
+            _read_back_default(display, mode, profile_name)
         return profile_name
     except Exception:
         if hasattr(mscms, "ColorProfileRemoveDisplayAssociation"):
